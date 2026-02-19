@@ -26,4 +26,15 @@ describe("renderer bridge and UX guards", () => {
     expect(app).toContain("modal-overlay");
     expect(app).toContain("Create Issue");
   });
+
+  it("enables VAULT_0 parity planning views in renderer", () => {
+    const appPath = path.resolve(process.cwd(), "src/renderer/App.tsx");
+    const app = fs.readFileSync(appPath, "utf8");
+
+    expect(app).toContain("type PlanningView = \"board\" | \"list\" | \"backlog\"");
+    expect(app).toContain("VIEW_LABELS");
+    expect(app).toContain("setView(\"board\")");
+    expect(app).toContain("setView(\"list\")");
+    expect(app).toContain("setView(\"backlog\")");
+  });
 });

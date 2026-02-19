@@ -21,6 +21,24 @@ const STATUSES: TicketStatus[] = [
   "done",
 ];
 
+const BOARD_COLUMNS: TicketStatus[] = [
+  "to-qualify",
+  "ready",
+  "in-progress",
+  "in-review",
+  "blocked",
+  "ask-boss",
+  "done",
+];
+
+type PlanningView = "board" | "list" | "backlog";
+
+const VIEW_LABELS: Record<PlanningView, string> = {
+  board: "Board",
+  list: "List",
+  backlog: "Backlog",
+};
+
 const STATUS_LABELS: Record<TicketStatus, string> = {
   "to-qualify": "To Qualify",
   backlog: "Backlog",
@@ -89,6 +107,8 @@ export function App(): React.JSX.Element {
   const [memorySummary, setMemorySummary] = useState("");
   const [chatText, setChatText] = useState("");
   const [showCreateTicketModal, setShowCreateTicketModal] = useState(false);
+  const [showTicketDetailModal, setShowTicketDetailModal] = useState(false);
+  const [view, setView] = useState<PlanningView>("backlog");
   const [ticketSearch, setTicketSearch] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
@@ -152,6 +172,18 @@ export function App(): React.JSX.Element {
     return Array.from(new Set(tickets.map((ticket) => ticket.assignee.trim()).filter(Boolean))).sort((a, b) =>
       a.localeCompare(b),
     );
+  }, [tickets]);
+
+  const workflowCounts = useMemo(() => {
+    const toDo = tickets.filter((ticket) =>
+      ticket.status === "to-qualify" || ticket.status === "backlog" || ticket.status === "ready",
+    ).length;
+    return {
+      toDo,
+      inProgress: tickets.filter((ticket) => ticket.status === "in-progress").length,
+      inReview: tickets.filter((ticket) => ticket.status === "in-review").length,
+      done: tickets.filter((ticket) => ticket.status === "done").length,
+    };
   }, [tickets]);
 
   async function refreshProjects(): Promise<ProjectRecord[]> {
@@ -305,21 +337,28 @@ export function App(): React.JSX.Element {
     await refreshVault0Dashboard(vault0SourceProjectId);
   }
 
+  function openTicketDetails(ticketId: string): void {
+    setSelectedTicketId(ticketId);
+    setShowTicketDetailModal(true);
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
           <p className="eyebrow">VAULT_1</p>
-          <h1>Desktop Local-First Control Center</h1>
+          <h1>{selectedVault0Project ? `${selectedVault0Project.name} / ${VIEW_LABELS[view]}` : "Execution Workspace"}</h1>
           <p className="subtitle">
-            Multi-project ticketing, board workflow, memory, handoff, multi-agent chat, and local/git project plug.
+            {filteredTickets.length} / {tickets.length} issues
+            {lastRefreshedAt ? ` | refreshed ${new Date(lastRefreshedAt).toLocaleTimeString()}` : ""}
           </p>
         </div>
         <div className="toolbar">
-          <select value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>
-            {projects.map((project) => (
+          <select value={vault0SourceProjectId} onChange={(event) => setVault0SourceProjectId(event.target.value)}>
+            <option value="">Select VAULT_0 project</option>
+            {vault0Projects.map((project) => (
               <option key={project.id} value={project.id}>
-                {project.isArchived ? `[Archived] ${project.name}` : project.name}
+                {project.name} ({project.id})
               </option>
             ))}
           </select>
@@ -356,6 +395,13 @@ export function App(): React.JSX.Element {
 
           <div className="sidebar-sprint">
             <p className="sidebar-sprint-title">Sprint 12</p>
+            <select value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.isArchived ? `[Archived] ${project.name}` : project.name}
+                </option>
+              ))}
+            </select>
             <div className="sidebar-progress">
               <span className="progress-segment todo" />
               <span className="progress-segment progress" />
@@ -367,135 +413,50 @@ export function App(): React.JSX.Element {
 
           <div className="sidebar-nav">
             <p className="sidebar-section-label">Planning</p>
-            <button type="button" className="sidebar-nav-item active">
+            <button
+              type="button"
+              className={`sidebar-nav-item ${view === "board" ? "active" : ""}`}
+              onClick={() => setView("board")}
+            >
               Board
             </button>
-            <button type="button" className="sidebar-nav-item">
+            <button
+              type="button"
+              className={`sidebar-nav-item ${view === "list" ? "active" : ""}`}
+              onClick={() => setView("list")}
+            >
               List
             </button>
-            <button type="button" className="sidebar-nav-item">
+            <button
+              type="button"
+              className={`sidebar-nav-item ${view === "backlog" ? "active" : ""}`}
+              onClick={() => setView("backlog")}
+            >
               Backlog
             </button>
           </div>
 
           <div className="divider" />
-          <h2>Project Admin</h2>
-          <div className="stack">
-            <input
-              value={newProjectName}
-              onChange={(event) => setNewProjectName(event.target.value)}
-              placeholder="New project name"
-            />
-            <textarea
-              value={newProjectDescription}
-              onChange={(event) => setNewProjectDescription(event.target.value)}
-              placeholder="Description"
-              rows={3}
-            />
-            <button
-              type="button"
-              disabled={!newProjectName.trim()}
-              onClick={() =>
-                void runAction(async () => {
-                  await vaultApi().projects.create({
-                    name: newProjectName.trim(),
-                    description: newProjectDescription,
-                  });
-                  setNewProjectName("");
-                  setNewProjectDescription("");
-                  await refreshProjects();
-                }, "Project created")
-              }
-            >
-              Create project
-            </button>
+          <div className="sidebar-legend">
+            <p className="sidebar-section-label">Workflow</p>
+            <p className="sidebar-brand-subtitle">
+              <span className="status-dot status-to-qualify" /> To Do {workflowCounts.toDo}
+            </p>
+            <p className="sidebar-brand-subtitle">
+              <span className="status-dot status-in-progress" /> In Progress {workflowCounts.inProgress}
+            </p>
+            <p className="sidebar-brand-subtitle">
+              <span className="status-dot status-in-review" /> In Review {workflowCounts.inReview}
+            </p>
+            <p className="sidebar-brand-subtitle">
+              <span className="status-dot status-done" /> Done {workflowCounts.done}
+            </p>
           </div>
-
-          <div className="divider" />
-
-          <h3>Plug from local path</h3>
-          <div className="stack">
-            <input
-              value={importPathName}
-              onChange={(event) => setImportPathName(event.target.value)}
-              placeholder="Project name"
-            />
-            <input
-              value={importPathValue}
-              onChange={(event) => setImportPathValue(event.target.value)}
-              placeholder="C:\\path\\to\\repo"
-            />
-            <button
-              type="button"
-              disabled={!importPathName.trim() || !importPathValue.trim()}
-              onClick={() =>
-                void runAction(async () => {
-                  await vaultApi().projects.importFromPath({
-                    name: importPathName.trim(),
-                    repoPath: importPathValue.trim(),
-                  });
-                  setImportPathName("");
-                  setImportPathValue("");
-                  await refreshProjects();
-                }, "Local project plugged")
-              }
-            >
-              Plug local project
-            </button>
-          </div>
-
-          <h3>Plug from git URL</h3>
-          <div className="stack">
-            <input
-              value={importGitName}
-              onChange={(event) => setImportGitName(event.target.value)}
-              placeholder="Project name"
-            />
-            <input
-              value={importGitUrl}
-              onChange={(event) => setImportGitUrl(event.target.value)}
-              placeholder="https://github.com/org/repo.git"
-            />
-            <button
-              type="button"
-              disabled={!importGitName.trim() || !importGitUrl.trim()}
-              onClick={() =>
-                void runAction(async () => {
-                  await vaultApi().projects.importFromGit({
-                    name: importGitName.trim(),
-                    repoUrl: importGitUrl.trim(),
-                  });
-                  setImportGitName("");
-                  setImportGitUrl("");
-                  await refreshProjects();
-                }, "Git repository cloned and plugged")
-              }
-            >
-              Clone and plug
-            </button>
-          </div>
-
-          {selectedProject ? (
-            <div className="stack">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() =>
-                  void runAction(async () => {
-                    await vaultApi().projects.archive(selectedProject.id, !selectedProject.isArchived);
-                    await refreshProjects();
-                  }, selectedProject.isArchived ? "Project unarchived" : "Project archived")
-                }
-              >
-                {selectedProject.isArchived ? "Unarchive project" : "Archive project"}
-              </button>
-            </div>
-          ) : null}
         </aside>
 
         <section className="panel board-panel wide">
           <div className="panel-header">
-            <h2>Tickets & Board</h2>
+            <h2>Tickets & {VIEW_LABELS[view]}</h2>
             <p>
               {selectedVault0Project
                 ? `${selectedVault0Project.name} (${selectedVault0Project.id})`
@@ -572,142 +533,134 @@ export function App(): React.JSX.Element {
             </button>
           </div>
 
-          <div className="board-scroll">
-            {boardLoading ? (
-              <div className="board-loading-skeleton">
-                {[1, 2, 3, 4].map((column) => (
-                  <div key={column} className="column skeleton-column">
-                    <div className="column-header">
-                      <div className="column-title">
-                        <span className="skeleton-dot" />
-                        <strong>Loading...</strong>
+          {view === "board" ? (
+            <div className="board-scroll">
+              {boardLoading ? (
+                <div className="board-loading-skeleton">
+                  {[1, 2, 3, 4].map((column) => (
+                    <div key={column} className="column skeleton-column">
+                      <div className="column-header">
+                        <div className="column-title">
+                          <span className="skeleton-dot" />
+                          <strong>Loading...</strong>
+                        </div>
+                        <span className="column-count">0</span>
                       </div>
-                      <span className="column-count">0</span>
-                    </div>
-                    <div className="column-body">
-                      {[1, 2, 3].map((card) => (
-                        <div key={card} className="ticket-card skeleton-card" />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <>
-                {STATUSES.map((status) => (
-                  <div key={status} className="column">
-                    <div className="column-header">
-                      <div className="column-title">
-                        <span className={`status-dot status-${status}`} />
-                        <strong>{STATUS_LABELS[status]}</strong>
+                      <div className="column-body">
+                        {[1, 2, 3].map((card) => (
+                          <div key={card} className="ticket-card skeleton-card" />
+                        ))}
                       </div>
-                      <span className="column-count">{groupedTickets.get(status)?.length ?? 0}</span>
                     </div>
-                    <div className="column-body">
-                      {(groupedTickets.get(status) ?? []).map((ticket) => (
-                        <button
-                          key={ticket.id}
-                          type="button"
-                          className={`ticket-card status-${ticket.status} ${selectedTicketId === ticket.id ? "active" : ""}`}
-                          onClick={() => setSelectedTicketId(ticket.id)}
-                        >
-                          <p className="ticket-id">{ticket.id}</p>
-                          <p className="ticket-title">{ticket.title}</p>
-                          <p className={`status-pill status-${ticket.status}`}>{STATUS_LABELS[ticket.status]}</p>
-                          <p className="ticket-meta">
-                            {ticket.type} / {ticket.priority} / {ticket.assignee || "unassigned"}
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {tickets.length === 0 ? (
-                  <div className="column empty-board-column">
-                    <div className="column-body">
-                      <p className="ticket-meta">No tickets loaded from VAULT_0 API for this project.</p>
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-
-          {selectedTicket ? (
-            <div className="ticket-detail">
-              <div className="panel-header">
-                <h3>{selectedTicket.id}</h3>
-                <div className="toolbar">
-                  <select
-                    value={selectedTicket.status}
-                    onChange={(event) => {
-                      const nextStatus = event.target.value as TicketStatus;
-                      void runAction(async () => {
-                        await vaultApi().vault0.updateTicketStatus({
-                          baseUrl: vault0BaseUrl.trim(),
-                          ticketId: selectedTicket.id,
-                          status: nextStatus,
-                          actor: selectedTicket.assignee || "vault1-desktop-architect",
-                        });
-                        await refreshVault0Dashboard(vault0SourceProjectId);
-                      }, `Ticket moved to ${STATUS_LABELS[nextStatus]}`);
-                    }}
-                  >
-                    {STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {STATUS_LABELS[status]}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() =>
-                      void runAction(async () => {
-                        const { filePath } = await vaultApi().vault0.exportTicketMarkdown({
-                          baseUrl: vault0BaseUrl.trim(),
-                          ticketId: selectedTicket.id,
-                        });
-                        setNotice(`Ticket exported: ${filePath}`);
-                      }, "Ticket markdown exported")
-                    }
-                  >
-                    Export markdown
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={!vault0SourceProjectId}
-                    onClick={() =>
-                      void runAction(async () => {
-                        const { handoff } = await vaultApi().vault0.generateHandoff({
-                          baseUrl: vault0BaseUrl.trim(),
-                          projectId: vault0SourceProjectId,
-                          ticketId: selectedTicket.id,
-                          memoryLimit: 5,
-                        });
-                        setHandoffText(handoff);
-                        await navigator.clipboard.writeText(handoff);
-                      }, "Handoff generated and copied")
-                    }
-                  >
-                    Copy handoff
-                  </button>
+                  ))}
                 </div>
-              </div>
-              <p>{selectedTicket.title}</p>
-              <p className="ticket-meta">
-                {selectedTicket.type} / {selectedTicket.priority} / {selectedTicket.status}
-              </p>
-              <p className={`status-pill status-${selectedTicket.status}`}>{STATUS_LABELS[selectedTicket.status]}</p>
-              <h4>Specification</h4>
-              <pre>{selectedTicket.specMarkdown || "No spec"}</pre>
-              <h4>Acceptance Criteria</h4>
-              <pre>{selectedTicket.acceptanceCriteria || "No acceptance criteria"}</pre>
-              <h4>Test Plan</h4>
-              <pre>{selectedTicket.testPlan || "No test plan"}</pre>
+              ) : (
+                <>
+                  {BOARD_COLUMNS.map((status) => (
+                    <div key={status} className="column">
+                      <div className="column-header">
+                        <div className="column-title">
+                          <span className={`status-dot status-${status}`} />
+                          <strong>{STATUS_LABELS[status]}</strong>
+                        </div>
+                        <span className="column-count">{groupedTickets.get(status)?.length ?? 0}</span>
+                      </div>
+                      <div className="column-body">
+                        {(groupedTickets.get(status) ?? []).map((ticket) => (
+                          <button
+                            key={ticket.id}
+                            type="button"
+                            className={`ticket-card status-${ticket.status} ${selectedTicketId === ticket.id ? "active" : ""}`}
+                            onClick={() => openTicketDetails(ticket.id)}
+                          >
+                            <p className="ticket-id">{ticket.id}</p>
+                            <p className="ticket-title">{ticket.title}</p>
+                            <p className={`status-pill status-${ticket.status}`}>{STATUS_LABELS[ticket.status]}</p>
+                            <p className="ticket-meta">
+                              {ticket.type} / {ticket.priority} / {ticket.assignee || "unassigned"}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {tickets.length === 0 ? (
+                    <div className="column empty-board-column">
+                      <div className="column-body">
+                        <p className="ticket-meta">No tickets loaded from VAULT_0 API for this project.</p>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
           ) : null}
+
+          {view === "list" ? (
+            <div className="list-section">
+              <table className="list-table">
+                <thead>
+                  <tr>
+                    <th>Issue</th>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Assignee</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTickets.map((ticket) => (
+                    <tr
+                      key={ticket.id}
+                      className={selectedTicketId === ticket.id ? "active" : ""}
+                      onClick={() => openTicketDetails(ticket.id)}
+                    >
+                      <td className="mono-cell">{ticket.id}</td>
+                      <td>{ticket.title}</td>
+                      <td>{ticket.type}</td>
+                      <td>{ticket.priority}</td>
+                      <td>
+                        <span className={`status-pill status-${ticket.status}`}>{STATUS_LABELS[ticket.status]}</span>
+                      </td>
+                      <td>{ticket.assignee || "Unassigned"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {view === "backlog" ? (
+            <div className="backlog-section">
+              <div className="backlog-sprint">
+                <div>
+                  <strong>Sprint 12</strong>
+                  <span>Feb 3 - Feb 17, 2026</span>
+                </div>
+                <span>
+                  {tickets.filter((ticket) => ticket.status === "done").length}/{Math.max(1, filteredTickets.length)} done
+                </span>
+              </div>
+              <div className="backlog-list">
+                {filteredTickets.map((ticket) => (
+                  <button
+                    key={ticket.id}
+                    type="button"
+                    className={`backlog-row ${selectedTicketId === ticket.id ? "active" : ""}`}
+                    onClick={() => openTicketDetails(ticket.id)}
+                  >
+                    <span className="mono-cell">{ticket.id}</span>
+                    <span className="backlog-title">{ticket.title}</span>
+                    <span className={`status-pill status-${ticket.status}`}>{STATUS_LABELS[ticket.status]}</span>
+                    <span className="backlog-points">{ticket.estimate} pts</span>
+                    <span className="backlog-avatar">{ticket.assignee ? ticket.assignee.slice(0, 2).toUpperCase() : "NA"}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
         </section>
 
         <aside className="panel aux-panel">
@@ -751,6 +704,120 @@ export function App(): React.JSX.Element {
               </p>
             </div>
           ) : null}
+
+          <div className="divider" />
+
+          <h2>Project Admin</h2>
+          <div className="stack">
+            <input
+              value={newProjectName}
+              onChange={(event) => setNewProjectName(event.target.value)}
+              placeholder="New project name"
+            />
+            <textarea
+              value={newProjectDescription}
+              onChange={(event) => setNewProjectDescription(event.target.value)}
+              placeholder="Description"
+              rows={3}
+            />
+            <button
+              type="button"
+              disabled={!newProjectName.trim()}
+              onClick={() =>
+                void runAction(async () => {
+                  await vaultApi().projects.create({
+                    name: newProjectName.trim(),
+                    description: newProjectDescription,
+                  });
+                  setNewProjectName("");
+                  setNewProjectDescription("");
+                  await refreshProjects();
+                }, "Project created")
+              }
+            >
+              Create project
+            </button>
+            {selectedProject ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() =>
+                  void runAction(async () => {
+                    await vaultApi().projects.archive(selectedProject.id, !selectedProject.isArchived);
+                    await refreshProjects();
+                  }, selectedProject.isArchived ? "Project unarchived" : "Project archived")
+                }
+              >
+                {selectedProject.isArchived ? "Unarchive project" : "Archive project"}
+              </button>
+            ) : null}
+          </div>
+
+          <details className="desktop-tools">
+            <summary>Plug from local path</summary>
+            <div className="stack">
+              <input
+                value={importPathName}
+                onChange={(event) => setImportPathName(event.target.value)}
+                placeholder="Project name"
+              />
+              <input
+                value={importPathValue}
+                onChange={(event) => setImportPathValue(event.target.value)}
+                placeholder="C:\\path\\to\\repo"
+              />
+              <button
+                type="button"
+                disabled={!importPathName.trim() || !importPathValue.trim()}
+                onClick={() =>
+                  void runAction(async () => {
+                    await vaultApi().projects.importFromPath({
+                      name: importPathName.trim(),
+                      repoPath: importPathValue.trim(),
+                    });
+                    setImportPathName("");
+                    setImportPathValue("");
+                    await refreshProjects();
+                  }, "Local project plugged")
+                }
+              >
+                Plug local project
+              </button>
+            </div>
+          </details>
+
+          <details className="desktop-tools">
+            <summary>Plug from git URL</summary>
+            <div className="stack">
+              <input
+                value={importGitName}
+                onChange={(event) => setImportGitName(event.target.value)}
+                placeholder="Project name"
+              />
+              <input
+                value={importGitUrl}
+                onChange={(event) => setImportGitUrl(event.target.value)}
+                placeholder="https://github.com/org/repo.git"
+              />
+              <button
+                type="button"
+                disabled={!importGitName.trim() || !importGitUrl.trim()}
+                onClick={() =>
+                  void runAction(async () => {
+                    await vaultApi().projects.importFromGit({
+                      name: importGitName.trim(),
+                      repoUrl: importGitUrl.trim(),
+                    });
+                    setImportGitName("");
+                    setImportGitUrl("");
+                    await refreshProjects();
+                  }, "Git repository cloned and plugged")
+                }
+              >
+                Clone and plug
+              </button>
+            </div>
+          </details>
 
           <div className="divider" />
 
@@ -939,6 +1006,98 @@ export function App(): React.JSX.Element {
                   Create ticket
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showTicketDetailModal && selectedTicket ? (
+        <div className="ticket-modal-overlay" onClick={() => setShowTicketDetailModal(false)}>
+          <div className="ticket-modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="ticket-modal-header">
+              <div>
+                <p className="eyebrow">{selectedTicket.id}</p>
+                <h2>{selectedTicket.title}</h2>
+              </div>
+              <div className="toolbar">
+                <select
+                  value={selectedTicket.status}
+                  onChange={(event) => {
+                    const nextStatus = event.target.value as TicketStatus;
+                    void runAction(async () => {
+                      await vaultApi().vault0.updateTicketStatus({
+                        baseUrl: vault0BaseUrl.trim(),
+                        ticketId: selectedTicket.id,
+                        status: nextStatus,
+                        actor: selectedTicket.assignee || "vault1-desktop-architect",
+                      });
+                      await refreshVault0Dashboard(vault0SourceProjectId);
+                    }, `Ticket moved to ${STATUS_LABELS[nextStatus]}`);
+                  }}
+                >
+                  {STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {STATUS_LABELS[status]}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() =>
+                    void runAction(async () => {
+                      const { filePath } = await vaultApi().vault0.exportTicketMarkdown({
+                        baseUrl: vault0BaseUrl.trim(),
+                        ticketId: selectedTicket.id,
+                      });
+                      setNotice(`Ticket exported: ${filePath}`);
+                    }, "Ticket markdown exported")
+                  }
+                >
+                  Export markdown
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={!vault0SourceProjectId}
+                  onClick={() =>
+                    void runAction(async () => {
+                      const { handoff } = await vaultApi().vault0.generateHandoff({
+                        baseUrl: vault0BaseUrl.trim(),
+                        projectId: vault0SourceProjectId,
+                        ticketId: selectedTicket.id,
+                        memoryLimit: 5,
+                      });
+                      setHandoffText(handoff);
+                      await navigator.clipboard.writeText(handoff);
+                    }, "Handoff generated and copied")
+                  }
+                >
+                  Copy handoff
+                </button>
+                <button type="button" className="secondary" onClick={() => setShowTicketDetailModal(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <p className="ticket-meta">
+              {selectedTicket.type} / {selectedTicket.priority} / {selectedTicket.assignee || "unassigned"}
+            </p>
+            <p className={`status-pill status-${selectedTicket.status}`}>{STATUS_LABELS[selectedTicket.status]}</p>
+
+            <div className="ticket-modal-grid">
+              <section className="ticket-modal-block">
+                <h4>Specification</h4>
+                <pre>{selectedTicket.specMarkdown || "No spec"}</pre>
+              </section>
+              <section className="ticket-modal-block">
+                <h4>Acceptance Criteria</h4>
+                <pre>{selectedTicket.acceptanceCriteria || "No acceptance criteria"}</pre>
+              </section>
+              <section className="ticket-modal-block ticket-modal-block-full">
+                <h4>Test Plan</h4>
+                <pre>{selectedTicket.testPlan || "No test plan"}</pre>
+              </section>
             </div>
           </div>
         </div>

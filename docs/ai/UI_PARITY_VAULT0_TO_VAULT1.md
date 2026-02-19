@@ -29,3 +29,17 @@ Objective: keep VAULT_1 desktop visually aligned with VAULT_0 board workflow whi
 
 - VAULT_1 board data is now sourced directly from VAULT_0 API endpoints.
 - Legacy import bridge actions were removed from dashboard UI to avoid mixed data paths.
+
+## VAULT_0 Sources Imported
+
+- Technical docs:
+  - `README.md` (VAULT_0 root)
+  - `tec_spec.md` (VAULT_0 root)
+  - `AGENTS_PM.md` (VAULT_0 root)
+  - `docs/ai/DESIGN_SYSTEM_VAULT0.md` (VAULT_0)
+- Design system / page references:
+  - https://www.figma.com/design/Iv7ECJGcMxmZnTtMq6A6UA/Untitled?node-id=2-2176&m=dev
+  - https://www.figma.com/design/Iv7ECJGcMxmZnTtMq6A6UA/Untitled?node-id=5-4256&m=dev
+  - https://www.figma.com/design/Iv7ECJGcMxmZnTtMq6A6UA/Untitled?node-id=5-4832&m=dev
+  - https://www.figma.com/design/Iv7ECJGcMxmZnTtMq6A6UA/Untitled?node-id=5-5467&m=dev
+  - https://www.figma.com/design/Iv7ECJGcMxmZnTtMq6A6UA/Untitled?node-id=5-6040&m=dev
