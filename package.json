@@ -1,0 +1,38 @@
+{
+  "name": "vault1-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VAULT_1 desktop local-first client",
+  "main": "dist/main/electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:main\" \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
+    "dev:renderer": "vite --config vite.renderer.config.ts --port 5174",
+    "dev:electron": "wait-on dist/main/electron/main.js tcp:5174 && cross-env VITE_DEV_SERVER_URL=http://localhost:5174 electron .",
+    "build": "npm run build:renderer && npm run build:main",
+    "build:renderer": "vite build --config vite.renderer.config.ts",
+    "build:main": "tsc -p tsconfig.main.json",
+    "start": "npm run build && electron .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^35.0.1",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.1",
+    "vitest": "^3.0.8",
+    "wait-on": "^8.0.3"
+  }
+}
