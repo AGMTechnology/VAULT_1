@@ -7,6 +7,7 @@ import type {
   TicketRecord,
   TicketStatus,
   TicketType,
+  Vault0ProjectSnapshot,
 } from "./contracts";
 
 export type VaultApi = {
@@ -87,6 +88,21 @@ export type VaultApi = {
   handoff: {
     generate: (ticketId: string) => Promise<{ handoff: string }>;
   };
+  vault0: {
+    overview: (baseUrl: string) => Promise<Vault0ProjectSnapshot[]>;
+    importAgent: (input: {
+      baseUrl: string;
+      sourceProjectId: string;
+      sourceAgentId: string;
+      targetProjectId: string;
+    }) => Promise<AgentRecord>;
+    importTicket: (input: {
+      baseUrl: string;
+      sourceProjectId: string;
+      sourceTicketId: string;
+      targetProjectId: string;
+    }) => Promise<TicketRecord>;
+  };
 };
 
 export const IPC_CHANNELS = {
@@ -107,4 +123,7 @@ export const IPC_CHANNELS = {
   MEMORY_LIST: "vault:memory:list",
   MEMORY_APPEND: "vault:memory:append",
   HANDOFF_GENERATE: "vault:handoff:generate",
+  VAULT0_OVERVIEW: "vault:vault0:overview",
+  VAULT0_IMPORT_AGENT: "vault:vault0:import-agent",
+  VAULT0_IMPORT_TICKET: "vault:vault0:import-ticket",
 } as const;

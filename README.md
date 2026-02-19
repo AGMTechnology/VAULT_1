@@ -1,4 +1,4 @@
-# VAULT_1 Desktop (MVP)
+# VAULT_1 Desktop
 
 VAULT_1 is a local-first desktop client that mirrors VAULT_0 workflow capabilities with a native runtime shell.
 
@@ -15,6 +15,7 @@ VAULT_1 is a local-first desktop client that mirrors VAULT_0 workflow capabiliti
 - Handoff generation (ticket + conventions + recent memory)
 - Agent registry per project
 - Integrated multi-agent chat (project-contextual)
+- VAULT_0 API bridge for shared data import (agents/tickets/memory visibility)
 
 ## Architecture
 
@@ -23,6 +24,7 @@ VAULT_1 is a local-first desktop client that mirrors VAULT_0 workflow capabiliti
 - Local persistence: SQLite (`better-sqlite3`) + JSONL memory files
 - IPC boundary: typed channels in `src/shared/ipc.ts`
 - Core domain service: `src/main/core/vault-core.ts`
+- VAULT_0 bridge and sharing primitives in `vault-core` + IPC bridge channels
 
 ## Data location
 
@@ -36,7 +38,7 @@ By default, VAULT_1 stores data under Electron `app.getPath("userData")`:
 ## Local run
 
 ```bash
-cd vault1-desktop
+cd VAULT_1
 npm install
 npm run dev
 ```
@@ -44,7 +46,7 @@ npm run dev
 ## Build and start
 
 ```bash
-cd vault1-desktop
+cd VAULT_1
 npm run build
 npm run start
 ```
@@ -52,7 +54,7 @@ npm run start
 ## Tests (TDD core)
 
 ```bash
-cd vault1-desktop
+cd VAULT_1
 npm test
 ```
 
@@ -65,7 +67,8 @@ Current tests cover:
 
 ## Scope notes
 
-This delivery is a robust MVP foundation aligned with ticket `VAULT-0-047`:
+This delivery is a robust MVP foundation aligned with ticket `VAULT-0-048`:
 
 - Core parity modules from VAULT_0 are scaffolded and operational in desktop context.
-- Advanced UX polish, richer board interactions, and deeper module parity can be iterated on top of this base.
+- Dedicated repository separation is enforced from VAULT_0.
+- Desktop shortcut automation script is provided in `scripts/`.

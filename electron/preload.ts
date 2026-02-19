@@ -35,6 +35,11 @@ const api: VaultApi = {
   handoff: {
     generate: (ticketId) => ipcRenderer.invoke(IPC_CHANNELS.HANDOFF_GENERATE, ticketId),
   },
+  vault0: {
+    overview: (baseUrl) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_OVERVIEW, baseUrl),
+    importAgent: (input) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_IMPORT_AGENT, input),
+    importTicket: (input) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_IMPORT_TICKET, input),
+  },
 };
 
 contextBridge.exposeInMainWorld("vault", api);

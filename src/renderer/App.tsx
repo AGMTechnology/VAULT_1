@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { AgentRecord, ChatMessage, MemoryEntry, ProjectRecord, TicketRecord, TicketStatus } from "@shared/contracts";
+import type {
+  AgentRecord,
+  ChatMessage,
+  MemoryEntry,
+  ProjectRecord,
+  TicketRecord,
+  TicketStatus,
+  Vault0ProjectSnapshot,
+} from "@shared/contracts";
 
 const STATUSES: TicketStatus[] = [
   "to-qualify",
@@ -56,6 +64,9 @@ export function App(): React.JSX.Element {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntry[]>([]);
   const [handoffText, setHandoffText] = useState("");
+  const [vault0BaseUrl, setVault0BaseUrl] = useState("http://localhost:3000");
+  const [vault0Snapshots, setVault0Snapshots] = useState<Vault0ProjectSnapshot[]>([]);
+  const [vault0SourceProjectId, setVault0SourceProjectId] = useState("");
 
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDescription, setNewProjectDescription] = useState("");
@@ -80,6 +91,11 @@ export function App(): React.JSX.Element {
   const selectedTicket = useMemo(
     () => tickets.find((ticket) => ticket.id === selectedTicketId) ?? null,
     [tickets, selectedTicketId],
+  );
+
+  const selectedVault0Snapshot = useMemo(
+    () => vault0Snapshots.find((entry) => entry.project.id === vault0SourceProjectId) ?? null,
+    [vault0Snapshots, vault0SourceProjectId],
   );
 
   const groupedTickets = useMemo(() => {
@@ -136,6 +152,17 @@ export function App(): React.JSX.Element {
 
     const rows = await window.vault.chat.list({ projectId, agentId: agentId || undefined });
     setChatMessages(rows);
+  }
+
+  async function refreshVault0Bridge(): Promise<void> {
+    const snapshots = await window.vault.vault0.overview(vault0BaseUrl.trim());
+    setVault0Snapshots(snapshots);
+    setVault0SourceProjectId((current) => {
+      if (current && snapshots.some((entry) => entry.project.id === current)) {
+        return current;
+      }
+      return snapshots[0]?.project.id ?? "";
+    });
   }
 
   useEffect(() => {
@@ -542,6 +569,95 @@ export function App(): React.JSX.Element {
         </section>
 
         <aside className="panel">
+          <h2>VAULT_0 Bridge</h2>
+          <input
+            value={vault0BaseUrl}
+            onChange={(event) => setVault0BaseUrl(event.target.value)}
+            placeholder="http://localhost:3000"
+          />
+          <button
+            type="button"
+            disabled={!vault0BaseUrl.trim()}
+            onClick={() =>
+              void runAction(async () => {
+                await refreshVault0Bridge();
+              }, "VAULT_0 data loaded")
+            }
+          >
+            Load VAULT_0 API data
+          </button>
+          <select value={vault0SourceProjectId} onChange={(event) => setVault0SourceProjectId(event.target.value)}>
+            <option value="">Select VAULT_0 project</option>
+            {vault0Snapshots.map((entry) => (
+              <option key={entry.project.id} value={entry.project.id}>
+                {entry.project.name} ({entry.project.id})
+              </option>
+            ))}
+          </select>
+          {selectedVault0Snapshot ? (
+            <div className="stack">
+              <p className="ticket-meta">
+                Agents: {selectedVault0Snapshot.agents.length} | Tickets: {selectedVault0Snapshot.tickets.length} |
+                Memory: {selectedVault0Snapshot.memory.length}
+              </p>
+              <div className="chat-list">
+                {selectedVault0Snapshot.agents.slice(0, 6).map((agent) => (
+                  <article key={agent.id} className="chat-item">
+                    <p className="ticket-meta">
+                      Agent: {agent.displayName} ({agent.agentId})
+                    </p>
+                    <button
+                      type="button"
+                      disabled={!selectedProjectId}
+                      onClick={() =>
+                        void runAction(async () => {
+                          await window.vault.vault0.importAgent({
+                            baseUrl: vault0BaseUrl.trim(),
+                            sourceProjectId: selectedVault0Snapshot.project.id,
+                            sourceAgentId: agent.agentId,
+                            targetProjectId: selectedProjectId,
+                          });
+                          await refreshProjectData(selectedProjectId);
+                        }, `Agent ${agent.agentId} imported from VAULT_0`)
+                      }
+                    >
+                      Import agent
+                    </button>
+                  </article>
+                ))}
+              </div>
+              <div className="chat-list">
+                {selectedVault0Snapshot.tickets.slice(0, 6).map((ticket) => (
+                  <article key={ticket.id} className="chat-item">
+                    <p className="ticket-meta">
+                      Ticket: {ticket.id} / {ticket.priority} / {ticket.status}
+                    </p>
+                    <p>{ticket.title}</p>
+                    <button
+                      type="button"
+                      disabled={!selectedProjectId}
+                      onClick={() =>
+                        void runAction(async () => {
+                          await window.vault.vault0.importTicket({
+                            baseUrl: vault0BaseUrl.trim(),
+                            sourceProjectId: selectedVault0Snapshot.project.id,
+                            sourceTicketId: ticket.id,
+                            targetProjectId: selectedProjectId,
+                          });
+                          await refreshProjectData(selectedProjectId);
+                        }, `Ticket ${ticket.id} imported from VAULT_0`)
+                      }
+                    >
+                      Import ticket
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="divider" />
+
           <h2>Agents Chat</h2>
           <select value={chatAgentId} onChange={(event) => setChatAgentId(event.target.value)}>
             <option value="">All agents</option>

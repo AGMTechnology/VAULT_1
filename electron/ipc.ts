@@ -90,6 +90,20 @@ const appendMemorySchema = z.object({
   }),
 });
 
+const importVault0AgentSchema = z.object({
+  baseUrl: nonEmptyText,
+  sourceProjectId: nonEmptyText,
+  sourceAgentId: nonEmptyText,
+  targetProjectId: nonEmptyText,
+});
+
+const importVault0TicketSchema = z.object({
+  baseUrl: nonEmptyText,
+  sourceProjectId: nonEmptyText,
+  sourceTicketId: nonEmptyText,
+  targetProjectId: nonEmptyText,
+});
+
 export function registerVaultIpc(core: VaultCore): void {
   ipcMain.handle(IPC_CHANNELS.HEALTH, async () => ({ ok: true }));
 
@@ -167,5 +181,19 @@ export function registerVaultIpc(core: VaultCore): void {
   ipcMain.handle(IPC_CHANNELS.HANDOFF_GENERATE, async (_event, ticketId: unknown) => {
     const handoff = await core.generateHandoff(nonEmptyText.parse(ticketId));
     return { handoff };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_OVERVIEW, async (_event, baseUrl: unknown) => {
+    return core.getVault0Overview(nonEmptyText.parse(baseUrl));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_IMPORT_AGENT, async (_event, payload: unknown) => {
+    const input = importVault0AgentSchema.parse(payload);
+    return core.importAgentFromVault0(input);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_IMPORT_TICKET, async (_event, payload: unknown) => {
+    const input = importVault0TicketSchema.parse(payload);
+    return core.importTicketFromVault0(input);
   });
 }

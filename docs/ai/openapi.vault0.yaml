@@ -1,0 +1,1631 @@
+openapi: 3.0.3
+info:
+  title: Project Hub Local API
+  version: 1.0.0
+  description: |
+    Local-first API for Project Hub Local.
+    Base URL is typically http://localhost:3000 in development.
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+tags:
+  - name: Projects
+  - name: Agents
+  - name: Locks
+  - name: Tickets
+  - name: Comments
+  - name: Audit
+  - name: Memory
+  - name: Prompts
+  - name: Handoff
+paths:
+  /api/projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      operationId: listProjects
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects]
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProjectRecord"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      tags: [Projects]
+      summary: Create project
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [project]
+                properties:
+                  project:
+                    $ref: "#/components/schemas/ProjectRecord"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/projects/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectIdParam"
+    get:
+      tags: [Projects]
+      summary: Get project by ID
+      operationId: getProject
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [project]
+                properties:
+                  project:
+                    $ref: "#/components/schemas/ProjectRecord"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/projects/{id}/lock:
+    parameters:
+      - $ref: "#/components/parameters/ProjectIdParam"
+    get:
+      tags: [Locks]
+      summary: Get active project lock
+      operationId: getProjectLock
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [lock]
+                properties:
+                  lock:
+                    nullable: true
+                    allOf:
+                      - $ref: "#/components/schemas/ProjectLockRecord"
+                    example: null
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/projects/{id}/docs:
+    parameters:
+      - $ref: "#/components/parameters/ProjectIdParam"
+    get:
+      tags: [Projects]
+      summary: Get required project docs checklist
+      operationId: getProjectDocsChecklist
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rootPath, requiredDocs, existingDocs, missingDocs]
+                properties:
+                  rootPath:
+                    type: string
+                  requiredDocs:
+                    type: array
+                    items:
+                      type: string
+                  existingDocs:
+                    type: array
+                    items:
+                      type: string
+                  missingDocs:
+                    type: array
+                    items:
+                      type: string
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    delete:
+      tags: [Locks]
+      summary: Release project lock
+      operationId: releaseProjectLock
+      parameters:
+        - name: agentId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: force
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Released
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    put:
+      tags: [Projects]
+      summary: Update project
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [project]
+                properties:
+                  project:
+                    $ref: "#/components/schemas/ProjectRecord"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    delete:
+      tags: [Projects]
+      summary: Delete project
+      operationId: deleteProject
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/tickets:
+    get:
+      tags: [Tickets]
+      summary: List tickets for a project (with filters)
+      operationId: listTickets
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          description: CSV statuses, e.g. ready,in-progress
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          description: CSV types
+          schema:
+            type: string
+        - name: priority
+          in: query
+          required: false
+          description: CSV priorities
+          schema:
+            type: string
+        - name: label
+          in: query
+          required: false
+          description: CSV labels
+          schema:
+            type: string
+        - name: assignee
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [priority-desc, priority-asc, updated-desc, updated-asc]
+            default: priority-desc
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tickets]
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TicketRecord"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      tags: [Tickets]
+      summary: Create ticket
+      operationId: createTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTicketInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket]
+                properties:
+                  ticket:
+                    $ref: "#/components/schemas/TicketRecord"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/tickets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/TicketIdParam"
+    get:
+      tags: [Tickets]
+      summary: Get ticket by ID
+      operationId: getTicket
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket]
+                properties:
+                  ticket:
+                    $ref: "#/components/schemas/TicketRecord"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    put:
+      tags: [Tickets]
+      summary: Update ticket
+      description: At least one field must be provided.
+      operationId: updateTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTicketInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket]
+                properties:
+                  ticket:
+                    $ref: "#/components/schemas/TicketRecord"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    delete:
+      tags: [Tickets]
+      summary: Delete ticket
+      operationId: deleteTicket
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/tickets/{id}/export:
+    parameters:
+      - $ref: "#/components/parameters/TicketIdParam"
+    post:
+      tags: [Tickets]
+      summary: Export ticket to markdown
+      operationId: exportTicketMarkdown
+      responses:
+        "200":
+          description: Exported
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, exportPath]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+                  exportPath:
+                    type: string
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/tickets/{id}/comments:
+    parameters:
+      - $ref: "#/components/parameters/TicketIdParam"
+    get:
+      tags: [Comments]
+      summary: List ticket comments
+      operationId: listTicketComments
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [comments]
+                properties:
+                  comments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CommentRecord"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      tags: [Comments]
+      summary: Add comment to ticket
+      operationId: createTicketComment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [comment]
+                properties:
+                  comment:
+                    $ref: "#/components/schemas/CommentRecord"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/tickets/{id}/audit:
+    parameters:
+      - $ref: "#/components/parameters/TicketIdParam"
+    get:
+      tags: [Audit]
+      summary: List ticket audit entries
+      operationId: listTicketAudit
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditLogRecord"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/tickets/next:
+    get:
+      tags: [Tickets]
+      summary: Get next ready ticket for a project
+      operationId: getNextReadyTicket
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: autoClaim
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: agentId
+          in: query
+          required: false
+          schema:
+            type: string
+            default: codex-dev
+        - name: includeHandoff
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: memoryLimit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 25
+            default: 5
+        - name: docsReviewed
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: docsReviewedPaths
+          in: query
+          required: false
+          schema:
+            type: string
+            description: CSV list of docs reviewed before auto-claim.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/NextTicketNoneResponse"
+                  - $ref: "#/components/schemas/NextTicketOnlyResponse"
+                  - $ref: "#/components/schemas/NextTicketWithHandoffResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/agents:
+    get:
+      tags: [Agents]
+      summary: List agents for a project
+      operationId: listAgents
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: includeInactive
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agents]
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AgentRecord"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      tags: [Agents]
+      summary: Create agent
+      operationId: createAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agent]
+                properties:
+                  agent:
+                    $ref: "#/components/schemas/AgentRecord"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/agents/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Agents]
+      summary: Get agent by ID
+      operationId: getAgent
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agent]
+                properties:
+                  agent:
+                    $ref: "#/components/schemas/AgentRecord"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    put:
+      tags: [Agents]
+      summary: Update agent
+      operationId: updateAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agent]
+                properties:
+                  agent:
+                    $ref: "#/components/schemas/AgentRecord"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    delete:
+      tags: [Agents]
+      summary: Delete agent
+      operationId: deleteAgent
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/agents/generate:
+    post:
+      tags: [Agents]
+      summary: Generate an optimized agent profile from a simple prompt
+      operationId: generateAgentProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateAgentProfileInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [profile]
+                properties:
+                  profile:
+                    $ref: "#/components/schemas/GeneratedAgentProfile"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFoundResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/memory:
+    get:
+      tags: [Memory]
+      summary: List memory entries for a project
+      operationId: listMemoryEntries
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: agentId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SessionMemoryEntry"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      tags: [Memory]
+      summary: Append memory entry
+      operationId: appendMemoryEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entry]
+                properties:
+                  entry:
+                    $ref: "#/components/schemas/SessionMemoryEntry"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/prompts:
+    get:
+      tags: [Prompts]
+      summary: List prompt presets
+      operationId: listPrompts
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [prompts]
+                properties:
+                  prompts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PromptPresetRecord"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      tags: [Prompts]
+      summary: Upsert prompt preset
+      operationId: upsertPrompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertPromptInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [prompt]
+                properties:
+                  prompt:
+                    $ref: "#/components/schemas/PromptPresetRecord"
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+  /api/handoff:
+    post:
+      tags: [Handoff]
+      summary: Generate dev handoff bundle
+      operationId: generateHandoff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateHandoffInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [handoff]
+                properties:
+                  handoff:
+                    type: string
+        "400":
+          $ref: "#/components/responses/ValidationErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+
+components:
+  parameters:
+    ProjectIdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    TicketIdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    ErrorResponse:
+      description: Generic error response
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ValidationErrorResponse:
+      description: Validation error response
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationErrorResponse"
+    NotFoundResponse:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    TicketType:
+      type: string
+      enum: [story, feature, bug, task, chore]
+    TicketPriority:
+      type: string
+      enum: [P0, P1, P2, P3]
+    TicketStatus:
+      type: string
+      enum: [backlog, to-qualify, ready, in-progress, in-review, blocked, ask-boss, done]
+    PromptKind:
+      type: string
+      enum: [PM, DEV, DESIGN]
+
+    ProjectRecord:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - repoPath
+        - figmaLink
+        - agentsConfiguration
+        - conventions
+        - isArchived
+        - archivedAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        repoPath:
+          type: string
+        figmaLink:
+          type: string
+        agentsConfiguration:
+          type: string
+        conventions:
+          type: string
+        isArchived:
+          type: boolean
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AgentRecord:
+      type: object
+      required:
+        - id
+        - projectId
+        - agentId
+        - displayName
+        - role
+        - personality
+        - skills
+        - rules
+        - defaultPrompt
+        - avatarUrl
+        - isActive
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        agentId:
+          type: string
+        displayName:
+          type: string
+        role:
+          type: string
+        personality:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        rules:
+          type: array
+          items:
+            type: string
+        defaultPrompt:
+          type: string
+        avatarUrl:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProjectLockRecord:
+      type: object
+      required: [id, projectId, agentId, reason, expiresAt, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        agentId:
+          type: string
+        reason:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TicketRecord:
+      type: object
+      required:
+        - id
+        - projectId
+        - title
+        - referencePrompt
+        - type
+        - priority
+        - status
+        - assignee
+        - estimate
+        - specMarkdown
+        - acceptanceCriteria
+        - testPlan
+        - dependencies
+        - labels
+        - lastActorId
+        - position
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        title:
+          type: string
+        referencePrompt:
+          type: string
+        type:
+          $ref: "#/components/schemas/TicketType"
+        priority:
+          $ref: "#/components/schemas/TicketPriority"
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+          description: >
+            Transition rules: in-review requires previous status in-progress; done requires previous status in-review.
+            in-review also requires a ticket comment starting with [DEV_DONE].
+            For bug/workflow/regression/incident labels, done also requires POST_MORTEM evidence in comments and memory.
+        assignee:
+          type: string
+        estimate:
+          type: integer
+          minimum: 0
+        specMarkdown:
+          type: string
+        acceptanceCriteria:
+          type: string
+        testPlan:
+          type: string
+        dependencies:
+          type: array
+          items:
+            type: string
+        labels:
+          type: array
+          items:
+            type: string
+        lastActorId:
+          type: string
+        position:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CommentRecord:
+      type: object
+      required: [id, ticketId, author, agentId, bodyMd, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        ticketId:
+          type: string
+        author:
+          type: string
+        agentId:
+          type: string
+        bodyMd:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AuditLogRecord:
+      type: object
+      required: [id, ticketId, actor, actorAgentId, action, payload, createdAt]
+      properties:
+        id:
+          type: string
+        ticketId:
+          type: string
+        actor:
+          type: string
+        actorAgentId:
+          type: string
+        action:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+
+    SessionMemoryEntry:
+      type: object
+      required:
+        - session_id
+        - projectId
+        - agentId
+        - date
+        - task_summary
+        - successes
+        - failures
+        - user_preferences
+        - user_frustrations
+        - decisions_taken
+        - lessons_learned
+        - files_changed
+        - commands_run
+        - next_session_focus
+      properties:
+        session_id:
+          type: string
+        projectId:
+          type: string
+        agentId:
+          type: string
+        date:
+          type: string
+          format: date-time
+        task_summary:
+          type: string
+        successes:
+          type: array
+          items:
+            type: string
+        failures:
+          type: array
+          items:
+            type: string
+        user_preferences:
+          type: array
+          items:
+            type: string
+        user_frustrations:
+          type: array
+          items:
+            type: string
+        decisions_taken:
+          type: array
+          items:
+            type: string
+        lessons_learned:
+          type: array
+          items:
+            type: string
+        files_changed:
+          type: array
+          items:
+            type: string
+        commands_run:
+          type: array
+          items:
+            type: string
+        next_session_focus:
+          type: array
+          items:
+            type: string
+
+    PromptPresetRecord:
+      type: object
+      required: [id, kind, content, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: "#/components/schemas/PromptKind"
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateProjectInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          default: ""
+        repoPath:
+          type: string
+          default: ""
+        figmaLink:
+          type: string
+          default: ""
+        agentsConfiguration:
+          type: string
+          default: ""
+        conventions:
+          type: string
+          default: ""
+        isArchived:
+          type: boolean
+          default: false
+
+    UpdateProjectInput:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        repoPath:
+          type: string
+        figmaLink:
+          type: string
+        agentsConfiguration:
+          type: string
+        conventions:
+          type: string
+        isArchived:
+          type: boolean
+
+    CreateAgentInput:
+      type: object
+      required: [projectId, agentId, displayName]
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+        agentId:
+          type: string
+          minLength: 2
+          pattern: "^[a-z0-9-]+$"
+        displayName:
+          type: string
+          minLength: 1
+        role:
+          type: string
+          default: ""
+        personality:
+          type: string
+          default: ""
+        skills:
+          type: array
+          items:
+            type: string
+          default: []
+        rules:
+          type: array
+          items:
+            type: string
+          default: []
+        defaultPrompt:
+          type: string
+          default: ""
+        avatarUrl:
+          type: string
+          default: ""
+        isActive:
+          type: boolean
+          default: true
+
+    UpdateAgentInput:
+      type: object
+      minProperties: 1
+      properties:
+        agentId:
+          type: string
+          minLength: 2
+          pattern: "^[a-z0-9-]+$"
+        displayName:
+          type: string
+        role:
+          type: string
+        personality:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        rules:
+          type: array
+          items:
+            type: string
+        defaultPrompt:
+          type: string
+        avatarUrl:
+          type: string
+        isActive:
+          type: boolean
+
+    GenerateAgentProfileInput:
+      type: object
+      required: [projectId, prompt]
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+        prompt:
+          type: string
+          minLength: 1
+
+    GeneratedAgentProfile:
+      type: object
+      required: [agentId, displayName, role, personality, skills, rules, defaultPrompt, avatarUrl]
+      properties:
+        agentId:
+          type: string
+        displayName:
+          type: string
+        role:
+          type: string
+        personality:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        rules:
+          type: array
+          items:
+            type: string
+        defaultPrompt:
+          type: string
+        avatarUrl:
+          type: string
+
+    CreateTicketInput:
+      type: object
+      required: [projectId, title, type, priority]
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+        actor:
+          type: string
+        title:
+          type: string
+          minLength: 1
+        type:
+          $ref: "#/components/schemas/TicketType"
+        priority:
+          $ref: "#/components/schemas/TicketPriority"
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+          default: backlog
+        assignee:
+          type: string
+          default: ""
+        estimate:
+          type: integer
+          minimum: 0
+          default: 0
+        specMarkdown:
+          type: string
+          default: ""
+        acceptanceCriteria:
+          type: string
+          default: ""
+        testPlan:
+          type: string
+          default: ""
+        dependencies:
+          type: array
+          items:
+            type: string
+          default: []
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
+        position:
+          type: integer
+          minimum: 0
+
+    UpdateTicketInput:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+        type:
+          $ref: "#/components/schemas/TicketType"
+        priority:
+          $ref: "#/components/schemas/TicketPriority"
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+        assignee:
+          type: string
+        estimate:
+          type: integer
+          minimum: 0
+        specMarkdown:
+          type: string
+        acceptanceCriteria:
+          type: string
+        testPlan:
+          type: string
+        dependencies:
+          type: array
+          items:
+            type: string
+        labels:
+          type: array
+          items:
+            type: string
+        position:
+          type: integer
+          minimum: 0
+        actor:
+          type: string
+        blockerNote:
+          type: string
+        docsReviewed:
+          type: boolean
+          default: false
+        docsReviewedPaths:
+          type: array
+          items:
+            type: string
+
+    CreateCommentInput:
+      type: object
+      required: [bodyMd]
+      properties:
+        author:
+          type: string
+          default: user
+        agentId:
+          type: string
+        bodyMd:
+          type: string
+          minLength: 1
+
+    CreateSessionInput:
+      type: object
+      required: [projectId, task_summary]
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+        agentId:
+          type: string
+          default: user
+        task_summary:
+          type: string
+          minLength: 1
+        successes:
+          type: array
+          items:
+            type: string
+          default: []
+        failures:
+          type: array
+          items:
+            type: string
+          default: []
+        user_preferences:
+          type: array
+          items:
+            type: string
+          default: []
+        user_frustrations:
+          type: array
+          items:
+            type: string
+          default: []
+        decisions_taken:
+          type: array
+          items:
+            type: string
+          default: []
+        lessons_learned:
+          type: array
+          items:
+            type: string
+          default: []
+        files_changed:
+          type: array
+          items:
+            type: string
+          default: []
+        commands_run:
+          type: array
+          items:
+            type: string
+          default: []
+        next_session_focus:
+          type: array
+          items:
+            type: string
+          default: []
+
+    UpsertPromptInput:
+      type: object
+      required: [kind, content]
+      properties:
+        kind:
+          $ref: "#/components/schemas/PromptKind"
+        content:
+          type: string
+          minLength: 1
+
+    GenerateHandoffInput:
+      type: object
+      required: [projectId, ticketId]
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+        ticketId:
+          type: string
+          minLength: 1
+        memoryLimit:
+          type: integer
+          minimum: 1
+          maximum: 25
+          default: 5
+
+    NextTicketNoneResponse:
+      type: object
+      required: [ticket, message]
+      properties:
+        ticket:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/TicketRecord"
+          description: Null when no ready ticket is found.
+          example: null
+        message:
+          type: string
+
+    NextTicketOnlyResponse:
+      type: object
+      required: [ticket]
+      properties:
+        ticket:
+          $ref: "#/components/schemas/TicketRecord"
+
+    NextTicketWithHandoffResponse:
+      type: object
+      required: [ticket, handoff]
+      properties:
+        ticket:
+          $ref: "#/components/schemas/TicketRecord"
+        handoff:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    ValidationIssue:
+      type: object
+      additionalProperties: true
+
+    ValidationErrorResponse:
+      type: object
+      required: [error, issues]
+      properties:
+        error:
+          type: string
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationIssue"

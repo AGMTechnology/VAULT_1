@@ -15,6 +15,7 @@ import type {
   TicketRecord,
   TicketStatus,
   TicketType,
+  Vault0ProjectSnapshot,
 } from "../../shared/contracts";
 
 const execFileAsync = promisify(execFile);
@@ -98,6 +99,20 @@ type AppendMemoryInput = {
   files_changed?: string[];
   commands_run?: string[];
   next_session_focus?: string[];
+};
+
+type ImportAgentFromVault0Input = {
+  baseUrl: string;
+  sourceProjectId: string;
+  sourceAgentId: string;
+  targetProjectId: string;
+};
+
+type ImportTicketFromVault0Input = {
+  baseUrl: string;
+  sourceProjectId: string;
+  sourceTicketId: string;
+  targetProjectId: string;
 };
 
 function normalizeProjectSlug(projectName: string): string {
@@ -234,6 +249,23 @@ export class VaultCore {
       throw new Error("VaultCore is not initialized");
     }
     return this.db;
+  }
+
+  private normalizeBaseUrl(baseUrl: string): string {
+    return baseUrl.trim().replace(/\/+$/, "");
+  }
+
+  private async fetchVault0Json<T>(baseUrl: string, route: string): Promise<T> {
+    const normalized = this.normalizeBaseUrl(baseUrl);
+    const response = await fetch(`${normalized}${route}`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`VAULT_0 API error ${response.status} on ${route}: ${body || response.statusText}`);
+    }
+    return (await response.json()) as T;
   }
 
   private projectMemoryFile(projectId: string): string {
@@ -586,6 +618,117 @@ export class VaultCore {
           .all(projectId) as Record<string, unknown>[]);
 
     return rows.map((row) => this.mapAgent(row));
+  }
+
+  private async listVault0Projects(baseUrl: string): Promise<ProjectRecord[]> {
+    const payload = await this.fetchVault0Json<{ projects: ProjectRecord[] }>(baseUrl, "/api/projects");
+    return payload.projects ?? [];
+  }
+
+  private async listVault0Agents(baseUrl: string, projectId: string): Promise<AgentRecord[]> {
+    const payload = await this.fetchVault0Json<{ agents: AgentRecord[] }>(
+      baseUrl,
+      `/api/agents?projectId=${encodeURIComponent(projectId)}&includeInactive=true`,
+    );
+    return payload.agents ?? [];
+  }
+
+  private async listVault0Tickets(baseUrl: string, projectId: string): Promise<TicketRecord[]> {
+    const payload = await this.fetchVault0Json<{ tickets: TicketRecord[] }>(
+      baseUrl,
+      `/api/tickets?projectId=${encodeURIComponent(projectId)}`,
+    );
+    return payload.tickets ?? [];
+  }
+
+  private async listVault0Memory(baseUrl: string, projectId: string, limit = 20): Promise<MemoryEntry[]> {
+    const payload = await this.fetchVault0Json<{ entries: MemoryEntry[] }>(
+      baseUrl,
+      `/api/memory?projectId=${encodeURIComponent(projectId)}&limit=${limit}`,
+    );
+    return payload.entries ?? [];
+  }
+
+  async getVault0Overview(baseUrl: string): Promise<Vault0ProjectSnapshot[]> {
+    const projects = await this.listVault0Projects(baseUrl);
+    return Promise.all(
+      projects.map(async (project) => {
+        const [agents, tickets, memory] = await Promise.all([
+          this.listVault0Agents(baseUrl, project.id),
+          this.listVault0Tickets(baseUrl, project.id),
+          this.listVault0Memory(baseUrl, project.id, 20),
+        ]);
+        return {
+          project,
+          agents,
+          tickets,
+          memory,
+        };
+      }),
+    );
+  }
+
+  async importAgentFromVault0(input: ImportAgentFromVault0Input): Promise<AgentRecord> {
+    const targetProject = await this.getProjectById(input.targetProjectId);
+    if (!targetProject) {
+      throw new Error("Target project not found");
+    }
+
+    const agents = await this.listVault0Agents(input.baseUrl, input.sourceProjectId);
+    const sourceAgent = agents.find(
+      (agent) => agent.id === input.sourceAgentId || agent.agentId === input.sourceAgentId,
+    );
+    if (!sourceAgent) {
+      throw new Error("Source agent not found in VAULT_0");
+    }
+
+    return this.upsertAgent({
+      projectId: input.targetProjectId,
+      agentId: sourceAgent.agentId,
+      displayName: sourceAgent.displayName,
+      role: sourceAgent.role,
+      personality: sourceAgent.personality,
+      skills: sourceAgent.skills,
+      rules: sourceAgent.rules,
+      defaultPrompt: sourceAgent.defaultPrompt,
+      avatarUrl: sourceAgent.avatarUrl,
+      isActive: sourceAgent.isActive,
+    });
+  }
+
+  async importTicketFromVault0(input: ImportTicketFromVault0Input): Promise<TicketRecord> {
+    const targetProject = await this.getProjectById(input.targetProjectId);
+    if (!targetProject) {
+      throw new Error("Target project not found");
+    }
+
+    const tickets = await this.listVault0Tickets(input.baseUrl, input.sourceProjectId);
+    const sourceTicket = tickets.find((ticket) => ticket.id === input.sourceTicketId);
+    if (!sourceTicket) {
+      throw new Error("Source ticket not found in VAULT_0");
+    }
+
+    const mergedLabels = Array.from(new Set([...(sourceTicket.labels ?? []), "shared-from-vault0"]));
+    const prefixedSpec = [
+      `VAULT_0 source ticket: ${sourceTicket.id} (project ${sourceTicket.projectId})`,
+      "",
+      sourceTicket.specMarkdown ?? "",
+    ].join("\n");
+
+    return this.createTicket({
+      projectId: input.targetProjectId,
+      title: sourceTicket.title,
+      type: sourceTicket.type,
+      priority: sourceTicket.priority,
+      status: sourceTicket.status,
+      assignee: sourceTicket.assignee,
+      estimate: sourceTicket.estimate,
+      specMarkdown: prefixedSpec,
+      acceptanceCriteria: sourceTicket.acceptanceCriteria,
+      testPlan: sourceTicket.testPlan,
+      dependencies: sourceTicket.dependencies,
+      labels: mergedLabels,
+    });
   }
 
   async sendChatMessage(input: SendChatMessageInput): Promise<ChatMessage> {

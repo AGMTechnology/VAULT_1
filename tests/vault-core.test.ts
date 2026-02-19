@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import http from "node:http";
 import path from "node:path";
 import os from "node:os";
 
@@ -210,5 +211,170 @@ describe("VaultCore", () => {
     expect(handoff).toContain("recent-1");
     expect(handoff).toContain("recent-2");
     expect(handoff).not.toContain("old-1");
+  });
+
+  it("bridges VAULT_0 API data and imports shared agent/ticket into VAULT_1", async () => {
+    const root = await createTempRoot();
+    const core = new VaultCore({
+      dbPath: path.join(root, "vault1.db"),
+      dataRoot: path.join(root, "data"),
+    });
+    cores.push(core);
+    await core.init();
+
+    const targetProject = await core.createProject({
+      name: "VAULT_1",
+      description: "desktop target",
+    });
+
+    const server = http.createServer((req, res) => {
+      const url = req.url ?? "";
+      const json = (body: unknown): void => {
+        res.setHeader("Content-Type", "application/json");
+        res.statusCode = 200;
+        res.end(JSON.stringify(body));
+      };
+
+      if (url === "/api/projects") {
+        json({
+          projects: [
+            {
+              id: "v0-project",
+              name: "VAULT_0",
+              description: "web",
+              repoPath: "C:\\repo\\VAULT_0",
+              figmaLink: "",
+              conventions: "",
+              agentsConfiguration: "",
+              isArchived: false,
+              createdAt: "2026-02-19T00:00:00.000Z",
+              updatedAt: "2026-02-19T00:00:00.000Z",
+            },
+          ],
+        });
+        return;
+      }
+
+      if (url.startsWith("/api/agents")) {
+        json({
+          agents: [
+            {
+              id: "v0-agent-row",
+              projectId: "v0-project",
+              agentId: "codex-dev",
+              displayName: "Codex Dev",
+              role: "developer",
+              personality: "rigorous",
+              skills: ["typescript"],
+              rules: ["TDD"],
+              defaultPrompt: "Do it right",
+              avatarUrl: "",
+              isActive: true,
+              createdAt: "2026-02-19T00:00:00.000Z",
+              updatedAt: "2026-02-19T00:00:00.000Z",
+            },
+          ],
+        });
+        return;
+      }
+
+      if (url.startsWith("/api/tickets")) {
+        json({
+          tickets: [
+            {
+              id: "VAULT-0-999",
+              projectId: "v0-project",
+              title: "Shared ticket",
+              type: "feature",
+              priority: "P1",
+              status: "ready",
+              assignee: "codex-dev",
+              estimate: 3,
+              specMarkdown: "spec",
+              acceptanceCriteria: "ac",
+              testPlan: "test",
+              dependencies: [],
+              labels: ["shared"],
+              createdAt: "2026-02-19T00:00:00.000Z",
+              updatedAt: "2026-02-19T00:00:00.000Z",
+            },
+          ],
+        });
+        return;
+      }
+
+      if (url.startsWith("/api/memory")) {
+        json({
+          entries: [
+            {
+              session_id: "mem-1",
+              date: "2026-02-19T00:00:00.000Z",
+              projectId: "v0-project",
+              agentId: "codex-dev",
+              task_summary: "shared memory",
+              successes: [],
+              failures: [],
+              user_preferences: [],
+              user_frustrations: [],
+              decisions_taken: [],
+              lessons_learned: [],
+              files_changed: [],
+              commands_run: [],
+              next_session_focus: [],
+            },
+          ],
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end();
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Unable to get test server address");
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const overview = await core.getVault0Overview(baseUrl);
+    expect(overview).toHaveLength(1);
+    expect(overview[0]?.project.name).toBe("VAULT_0");
+    expect(overview[0]?.agents).toHaveLength(1);
+    expect(overview[0]?.tickets).toHaveLength(1);
+    expect(overview[0]?.memory).toHaveLength(1);
+
+    const importedAgent = await core.importAgentFromVault0({
+      baseUrl,
+      sourceProjectId: "v0-project",
+      sourceAgentId: "codex-dev",
+      targetProjectId: targetProject.id,
+    });
+    expect(importedAgent.projectId).toBe(targetProject.id);
+    expect(importedAgent.agentId).toBe("codex-dev");
+
+    const importedTicket = await core.importTicketFromVault0({
+      baseUrl,
+      sourceProjectId: "v0-project",
+      sourceTicketId: "VAULT-0-999",
+      targetProjectId: targetProject.id,
+    });
+    expect(importedTicket.projectId).toBe(targetProject.id);
+    expect(importedTicket.labels).toContain("shared-from-vault0");
+    expect(importedTicket.specMarkdown).toContain("VAULT_0 source ticket");
+
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
   });
 });

@@ -83,3 +83,10 @@ export type ChatMessage = {
   content: string;
   createdAt: string;
 };
+
+export type Vault0ProjectSnapshot = {
+  project: ProjectRecord;
+  agents: AgentRecord[];
+  tickets: TicketRecord[];
+  memory: MemoryEntry[];
+};
