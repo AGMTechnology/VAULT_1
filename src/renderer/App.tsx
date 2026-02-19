@@ -7,7 +7,6 @@ import type {
   ProjectRecord,
   TicketRecord,
   TicketStatus,
-  Vault0ProjectSnapshot,
 } from "@shared/contracts";
 import type { VaultApi } from "@shared/ipc";
 
@@ -76,7 +75,7 @@ export function App(): React.JSX.Element {
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntry[]>([]);
   const [handoffText, setHandoffText] = useState("");
   const [vault0BaseUrl, setVault0BaseUrl] = useState("http://localhost:3000");
-  const [vault0Snapshots, setVault0Snapshots] = useState<Vault0ProjectSnapshot[]>([]);
+  const [vault0Projects, setVault0Projects] = useState<ProjectRecord[]>([]);
   const [vault0SourceProjectId, setVault0SourceProjectId] = useState("");
 
   const [newProjectName, setNewProjectName] = useState("");
@@ -91,8 +90,14 @@ export function App(): React.JSX.Element {
   const [chatText, setChatText] = useState("");
   const [showCreateTicketModal, setShowCreateTicketModal] = useState(false);
   const [ticketSearch, setTicketSearch] = useState("");
+  const [filterAssignee, setFilterAssignee] = useState("");
+  const [filterPriority, setFilterPriority] = useState("");
+  const [filterType, setFilterType] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState("");
 
   const [loading, setLoading] = useState(false);
+  const [boardLoading, setBoardLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -106,21 +111,33 @@ export function App(): React.JSX.Element {
     [tickets, selectedTicketId],
   );
 
-  const selectedVault0Snapshot = useMemo(
-    () => vault0Snapshots.find((entry) => entry.project.id === vault0SourceProjectId) ?? null,
-    [vault0Snapshots, vault0SourceProjectId],
+  const selectedVault0Project = useMemo(
+    () => vault0Projects.find((project) => project.id === vault0SourceProjectId) ?? null,
+    [vault0Projects, vault0SourceProjectId],
   );
 
   const filteredTickets = useMemo(() => {
     const query = ticketSearch.trim().toLowerCase();
+    const assigneeFilter = filterAssignee.trim().toLowerCase();
     if (!query) {
-      return tickets;
+      return tickets.filter((ticket) => {
+        if (filterStatus && ticket.status !== filterStatus) return false;
+        if (filterPriority && ticket.priority !== filterPriority) return false;
+        if (filterType && ticket.type !== filterType) return false;
+        if (assigneeFilter && !ticket.assignee.toLowerCase().includes(assigneeFilter)) return false;
+        return true;
+      });
     }
     return tickets.filter((ticket) => {
+      if (filterStatus && ticket.status !== filterStatus) return false;
+      if (filterPriority && ticket.priority !== filterPriority) return false;
+      if (filterType && ticket.type !== filterType) return false;
+      if (assigneeFilter && !ticket.assignee.toLowerCase().includes(assigneeFilter)) return false;
+
       const haystack = `${ticket.id} ${ticket.title} ${ticket.assignee} ${ticket.type} ${ticket.priority}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [ticketSearch, tickets]);
+  }, [filterAssignee, filterPriority, filterStatus, filterType, ticketSearch, tickets]);
 
   const groupedTickets = useMemo(() => {
     const groups = new Map<TicketStatus, TicketRecord[]>();
@@ -130,6 +147,12 @@ export function App(): React.JSX.Element {
     });
     return groups;
   }, [filteredTickets]);
+
+  const ticketAssignees = useMemo(() => {
+    return Array.from(new Set(tickets.map((ticket) => ticket.assignee.trim()).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b),
+    );
+  }, [tickets]);
 
   async function refreshProjects(): Promise<ProjectRecord[]> {
     const rows = await vaultApi().projects.list(true);
@@ -143,31 +166,6 @@ export function App(): React.JSX.Element {
     return rows;
   }
 
-  async function refreshProjectData(projectId: string): Promise<void> {
-    if (!projectId) {
-      setTickets([]);
-      setAgents([]);
-      setChatMessages([]);
-      setMemoryEntries([]);
-      return;
-    }
-
-    const [nextTickets, nextAgents, nextMemory] = await Promise.all([
-      vaultApi().tickets.list(projectId),
-      vaultApi().agents.list(projectId, true),
-      vaultApi().memory.list(projectId, 50),
-    ]);
-
-    setTickets(nextTickets);
-    setAgents(nextAgents);
-    setMemoryEntries(nextMemory);
-    setSelectedTicketId((current) => (current && nextTickets.some((ticket) => ticket.id === current) ? current : nextTickets[0]?.id ?? ""));
-
-    const defaultAgentId = nextAgents.find((agent) => agent.isActive)?.agentId ?? nextAgents[0]?.agentId ?? "";
-    setChatAgentId((current) => (current && nextAgents.some((agent) => agent.agentId === current) ? current : defaultAgentId));
-    setTicketDraft((current) => ({ ...current, assignee: current.assignee || defaultAgentId }));
-  }
-
   async function refreshChat(projectId: string, agentId: string): Promise<void> {
     if (!projectId) {
       setChatMessages([]);
@@ -178,15 +176,51 @@ export function App(): React.JSX.Element {
     setChatMessages(rows);
   }
 
-  async function refreshVault0Bridge(): Promise<void> {
-    const snapshots = await vaultApi().vault0.overview(vault0BaseUrl.trim());
-    setVault0Snapshots(snapshots);
+  async function refreshVault0Projects(): Promise<ProjectRecord[]> {
+    const rows = await vaultApi().vault0.listProjects(vault0BaseUrl.trim());
+    setVault0Projects(rows);
     setVault0SourceProjectId((current) => {
-      if (current && snapshots.some((entry) => entry.project.id === current)) {
+      if (current && rows.some((project) => project.id === current)) {
         return current;
       }
-      return snapshots[0]?.project.id ?? "";
+      return rows[0]?.id ?? "";
     });
+    return rows;
+  }
+
+  async function refreshVault0Dashboard(projectId: string): Promise<void> {
+    if (!projectId) {
+      setTickets([]);
+      setAgents([]);
+      setMemoryEntries([]);
+      setSelectedTicketId("");
+      return;
+    }
+
+    setBoardLoading(true);
+    try {
+      const [nextTickets, nextAgents, nextMemory] = await Promise.all([
+        vaultApi().vault0.listTickets(vault0BaseUrl.trim(), projectId),
+        vaultApi().vault0.listAgents(vault0BaseUrl.trim(), projectId, true),
+        vaultApi().vault0.listMemory(vault0BaseUrl.trim(), projectId, 50),
+      ]);
+
+      setTickets(nextTickets);
+      setAgents(nextAgents);
+      setMemoryEntries(nextMemory);
+      setSelectedTicketId((current) =>
+        current && nextTickets.some((ticket) => ticket.id === current) ? current : nextTickets[0]?.id ?? "",
+      );
+
+      const defaultAgentId = nextAgents.find((agent) => agent.isActive)?.agentId ?? nextAgents[0]?.agentId ?? "";
+      setChatAgentId((current) =>
+        current && nextAgents.some((agent) => agent.agentId === current) ? current : defaultAgentId,
+      );
+      setTicketDraft((current) => ({ ...current, assignee: current.assignee || defaultAgentId }));
+      setLastRefreshedAt(new Date().toISOString());
+    } finally {
+      setBoardLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -197,8 +231,11 @@ export function App(): React.JSX.Element {
         const nextProjects = await refreshProjects();
         const firstProject = nextProjects.find((project) => !project.isArchived) ?? nextProjects[0];
         if (firstProject) {
-          await refreshProjectData(firstProject.id);
           await refreshChat(firstProject.id, "");
+        }
+        const remoteProjects = await refreshVault0Projects();
+        if (remoteProjects[0]?.id) {
+          await refreshVault0Dashboard(remoteProjects[0].id);
         }
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Failed to initialize VAULT_1 desktop");
@@ -213,25 +250,27 @@ export function App(): React.JSX.Element {
       return;
     }
 
-    void (async () => {
-      try {
-        setError("");
-        await refreshProjectData(selectedProjectId);
-        await refreshChat(selectedProjectId, chatAgentId);
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to refresh project data");
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId]);
+    void refreshChat(selectedProjectId, chatAgentId);
+  }, [selectedProjectId, chatAgentId]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
+    if (!vault0SourceProjectId) {
+      setTickets([]);
+      setAgents([]);
+      setMemoryEntries([]);
+      setSelectedTicketId("");
       return;
     }
 
-    void refreshChat(selectedProjectId, chatAgentId);
-  }, [selectedProjectId, chatAgentId]);
+    void (async () => {
+      try {
+        setError("");
+        await refreshVault0Dashboard(vault0SourceProjectId);
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : "Failed to refresh VAULT_0 dashboard");
+      }
+    })();
+  }, [vault0BaseUrl, vault0SourceProjectId]);
 
   async function runAction(action: () => Promise<void>, successMessage: string): Promise<void> {
     try {
@@ -245,8 +284,14 @@ export function App(): React.JSX.Element {
   }
 
   async function createTicketFromDraft(): Promise<void> {
-    await vaultApi().tickets.create({
-      projectId: selectedProjectId,
+    if (!vault0SourceProjectId) {
+      throw new Error("Select a VAULT_0 project first.");
+    }
+
+    await vaultApi().vault0.createTicket({
+      baseUrl: vault0BaseUrl.trim(),
+      projectId: vault0SourceProjectId,
+      actor: ticketDraft.assignee.trim() || "vault1-desktop-architect",
       title: ticketDraft.title.trim(),
       type: ticketDraft.type,
       priority: ticketDraft.priority,
@@ -257,7 +302,7 @@ export function App(): React.JSX.Element {
       testPlan: ticketDraft.testPlan,
     });
     setTicketDraft((current) => ({ ...EMPTY_TICKET_DRAFT, assignee: current.assignee }));
-    await refreshProjectData(selectedProjectId);
+    await refreshVault0Dashboard(vault0SourceProjectId);
   }
 
   return (
@@ -283,9 +328,10 @@ export function App(): React.JSX.Element {
             onClick={() =>
               void runAction(async () => {
                 await refreshProjects();
-                if (selectedProjectId) {
-                  await refreshProjectData(selectedProjectId);
-                  await refreshChat(selectedProjectId, chatAgentId);
+                const remoteProjects = await refreshVault0Projects();
+                const targetProjectId = vault0SourceProjectId || remoteProjects[0]?.id || "";
+                if (targetProjectId) {
+                  await refreshVault0Dashboard(targetProjectId);
                 }
               }, "Workspace refreshed")
             }
@@ -450,7 +496,11 @@ export function App(): React.JSX.Element {
         <section className="panel board-panel wide">
           <div className="panel-header">
             <h2>Tickets & Board</h2>
-            <p>{selectedProject ? `${selectedProject.name} (${selectedProject.id})` : "No project selected"}</p>
+            <p>
+              {selectedVault0Project
+                ? `${selectedVault0Project.name} (${selectedVault0Project.id})`
+                : "No VAULT_0 project selected"}
+            </p>
           </div>
 
           <div className="board-toolbar">
@@ -462,18 +512,60 @@ export function App(): React.JSX.Element {
               />
             </div>
             <div className="board-filters">
-              <span className="filter-chip">Assignee</span>
-              <span className="filter-chip">Priority</span>
-              <span className="filter-chip">Type</span>
-              <span className="filter-chip">Label</span>
+              <select value={filterAssignee} onChange={(event) => setFilterAssignee(event.target.value)}>
+                <option value="">Assignee</option>
+                {ticketAssignees.map((assignee) => (
+                  <option key={assignee} value={assignee}>
+                    {assignee}
+                  </option>
+                ))}
+              </select>
+              <select value={filterPriority} onChange={(event) => setFilterPriority(event.target.value)}>
+                <option value="">Priority</option>
+                {["P0", "P1", "P2", "P3"].map((priority) => (
+                  <option key={priority} value={priority}>
+                    {priority}
+                  </option>
+                ))}
+              </select>
+              <select value={filterType} onChange={(event) => setFilterType(event.target.value)}>
+                <option value="">Type</option>
+                {["feature", "story", "task", "bug", "chore"].map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+              <select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}>
+                <option value="">Status</option>
+                {STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {STATUS_LABELS[status]}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!vault0SourceProjectId || boardLoading}
+                onClick={() =>
+                  void runAction(async () => {
+                    if (!vault0SourceProjectId) return;
+                    await refreshVault0Dashboard(vault0SourceProjectId);
+                  }, "VAULT_0 board refreshed")
+                }
+              >
+                {boardLoading ? "Refreshing..." : "Refresh"}
+              </button>
               <span className="board-count">
                 {filteredTickets.length} / {tickets.length} issues
+                {lastRefreshedAt ? ` | refreshed ${new Date(lastRefreshedAt).toLocaleTimeString()}` : ""}
               </span>
             </div>
             <button
               type="button"
               className="create-issue-button"
-              disabled={!selectedProjectId}
+              disabled={!vault0SourceProjectId}
               onClick={() => setShowCreateTicketModal(true)}
             >
               + Create
@@ -481,34 +573,64 @@ export function App(): React.JSX.Element {
           </div>
 
           <div className="board-scroll">
-            {STATUSES.map((status) => (
-              <div key={status} className="column">
-                <div className="column-header">
-                  <div className="column-title">
-                    <span className={`status-dot status-${status}`} />
-                    <strong>{STATUS_LABELS[status]}</strong>
+            {boardLoading ? (
+              <div className="board-loading-skeleton">
+                {[1, 2, 3, 4].map((column) => (
+                  <div key={column} className="column skeleton-column">
+                    <div className="column-header">
+                      <div className="column-title">
+                        <span className="skeleton-dot" />
+                        <strong>Loading...</strong>
+                      </div>
+                      <span className="column-count">0</span>
+                    </div>
+                    <div className="column-body">
+                      {[1, 2, 3].map((card) => (
+                        <div key={card} className="ticket-card skeleton-card" />
+                      ))}
+                    </div>
                   </div>
-                  <span className="column-count">{groupedTickets.get(status)?.length ?? 0}</span>
-                </div>
-                <div className="column-body">
-                  {(groupedTickets.get(status) ?? []).map((ticket) => (
-                    <button
-                      key={ticket.id}
-                      type="button"
-                      className={`ticket-card status-${ticket.status} ${selectedTicketId === ticket.id ? "active" : ""}`}
-                      onClick={() => setSelectedTicketId(ticket.id)}
-                    >
-                      <p className="ticket-id">{ticket.id}</p>
-                      <p className="ticket-title">{ticket.title}</p>
-                      <p className={`status-pill status-${ticket.status}`}>{STATUS_LABELS[ticket.status]}</p>
-                      <p className="ticket-meta">
-                        {ticket.type} / {ticket.priority} / {ticket.assignee || "unassigned"}
-                      </p>
-                    </button>
-                  ))}
-                </div>
+                ))}
               </div>
-            ))}
+            ) : (
+              <>
+                {STATUSES.map((status) => (
+                  <div key={status} className="column">
+                    <div className="column-header">
+                      <div className="column-title">
+                        <span className={`status-dot status-${status}`} />
+                        <strong>{STATUS_LABELS[status]}</strong>
+                      </div>
+                      <span className="column-count">{groupedTickets.get(status)?.length ?? 0}</span>
+                    </div>
+                    <div className="column-body">
+                      {(groupedTickets.get(status) ?? []).map((ticket) => (
+                        <button
+                          key={ticket.id}
+                          type="button"
+                          className={`ticket-card status-${ticket.status} ${selectedTicketId === ticket.id ? "active" : ""}`}
+                          onClick={() => setSelectedTicketId(ticket.id)}
+                        >
+                          <p className="ticket-id">{ticket.id}</p>
+                          <p className="ticket-title">{ticket.title}</p>
+                          <p className={`status-pill status-${ticket.status}`}>{STATUS_LABELS[ticket.status]}</p>
+                          <p className="ticket-meta">
+                            {ticket.type} / {ticket.priority} / {ticket.assignee || "unassigned"}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {tickets.length === 0 ? (
+                  <div className="column empty-board-column">
+                    <div className="column-body">
+                      <p className="ticket-meta">No tickets loaded from VAULT_0 API for this project.</p>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
 
           {selectedTicket ? (
@@ -521,8 +643,13 @@ export function App(): React.JSX.Element {
                     onChange={(event) => {
                       const nextStatus = event.target.value as TicketStatus;
                       void runAction(async () => {
-                        await vaultApi().tickets.updateStatus(selectedTicket.id, nextStatus);
-                        await refreshProjectData(selectedProjectId);
+                        await vaultApi().vault0.updateTicketStatus({
+                          baseUrl: vault0BaseUrl.trim(),
+                          ticketId: selectedTicket.id,
+                          status: nextStatus,
+                          actor: selectedTicket.assignee || "vault1-desktop-architect",
+                        });
+                        await refreshVault0Dashboard(vault0SourceProjectId);
                       }, `Ticket moved to ${STATUS_LABELS[nextStatus]}`);
                     }}
                   >
@@ -537,7 +664,10 @@ export function App(): React.JSX.Element {
                     className="secondary"
                     onClick={() =>
                       void runAction(async () => {
-                        const { filePath } = await vaultApi().tickets.exportMarkdown(selectedTicket.id);
+                        const { filePath } = await vaultApi().vault0.exportTicketMarkdown({
+                          baseUrl: vault0BaseUrl.trim(),
+                          ticketId: selectedTicket.id,
+                        });
                         setNotice(`Ticket exported: ${filePath}`);
                       }, "Ticket markdown exported")
                     }
@@ -547,9 +677,15 @@ export function App(): React.JSX.Element {
                   <button
                     type="button"
                     className="secondary"
+                    disabled={!vault0SourceProjectId}
                     onClick={() =>
                       void runAction(async () => {
-                        const { handoff } = await vaultApi().handoff.generate(selectedTicket.id);
+                        const { handoff } = await vaultApi().vault0.generateHandoff({
+                          baseUrl: vault0BaseUrl.trim(),
+                          projectId: vault0SourceProjectId,
+                          ticketId: selectedTicket.id,
+                          memoryLimit: 5,
+                        });
                         setHandoffText(handoff);
                         await navigator.clipboard.writeText(handoff);
                       }, "Handoff generated and copied")
@@ -575,7 +711,7 @@ export function App(): React.JSX.Element {
         </section>
 
         <aside className="panel aux-panel">
-          <h2>VAULT_0 Bridge</h2>
+          <h2>VAULT_0 API Source</h2>
           <input
             value={vault0BaseUrl}
             onChange={(event) => setVault0BaseUrl(event.target.value)}
@@ -586,79 +722,33 @@ export function App(): React.JSX.Element {
             disabled={!vault0BaseUrl.trim()}
             onClick={() =>
               void runAction(async () => {
-                await refreshVault0Bridge();
-              }, "VAULT_0 data loaded")
+                const rows = await refreshVault0Projects();
+                if (vault0SourceProjectId) {
+                  await refreshVault0Dashboard(vault0SourceProjectId);
+                } else if (rows[0]?.id) {
+                  await refreshVault0Dashboard(rows[0].id);
+                }
+              }, "VAULT_0 projects loaded")
             }
           >
-            Load VAULT_0 API data
+            Load VAULT_0 dashboard
           </button>
           <select value={vault0SourceProjectId} onChange={(event) => setVault0SourceProjectId(event.target.value)}>
             <option value="">Select VAULT_0 project</option>
-            {vault0Snapshots.map((entry) => (
-              <option key={entry.project.id} value={entry.project.id}>
-                {entry.project.name} ({entry.project.id})
+            {vault0Projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name} ({project.id})
               </option>
             ))}
           </select>
-          {selectedVault0Snapshot ? (
+          {selectedVault0Project ? (
             <div className="stack">
               <p className="ticket-meta">
-                Agents: {selectedVault0Snapshot.agents.length} | Tickets: {selectedVault0Snapshot.tickets.length} |
-                Memory: {selectedVault0Snapshot.memory.length}
+                Project: {selectedVault0Project.name}
               </p>
-              <div className="chat-list">
-                {selectedVault0Snapshot.agents.slice(0, 6).map((agent) => (
-                  <article key={agent.id} className="chat-item">
-                    <p className="ticket-meta">
-                      Agent: {agent.displayName} ({agent.agentId})
-                    </p>
-                    <button
-                      type="button"
-                      disabled={!selectedProjectId}
-                      onClick={() =>
-                        void runAction(async () => {
-                          await vaultApi().vault0.importAgent({
-                            baseUrl: vault0BaseUrl.trim(),
-                            sourceProjectId: selectedVault0Snapshot.project.id,
-                            sourceAgentId: agent.agentId,
-                            targetProjectId: selectedProjectId,
-                          });
-                          await refreshProjectData(selectedProjectId);
-                        }, `Agent ${agent.agentId} imported from VAULT_0`)
-                      }
-                    >
-                      Import agent
-                    </button>
-                  </article>
-                ))}
-              </div>
-              <div className="chat-list">
-                {selectedVault0Snapshot.tickets.slice(0, 6).map((ticket) => (
-                  <article key={ticket.id} className="chat-item">
-                    <p className="ticket-meta">
-                      Ticket: {ticket.id} / {ticket.priority} / {ticket.status}
-                    </p>
-                    <p>{ticket.title}</p>
-                    <button
-                      type="button"
-                      disabled={!selectedProjectId}
-                      onClick={() =>
-                        void runAction(async () => {
-                          await vaultApi().vault0.importTicket({
-                            baseUrl: vault0BaseUrl.trim(),
-                            sourceProjectId: selectedVault0Snapshot.project.id,
-                            sourceTicketId: ticket.id,
-                            targetProjectId: selectedProjectId,
-                          });
-                          await refreshProjectData(selectedProjectId);
-                        }, `Ticket ${ticket.id} imported from VAULT_0`)
-                      }
-                    >
-                      Import ticket
-                    </button>
-                  </article>
-                ))}
-              </div>
+              <p className="ticket-meta">
+                Tickets: {tickets.length} | Agents: {agents.length} | Memory: {memoryEntries.length}
+              </p>
             </div>
           ) : null}
 
@@ -715,24 +805,18 @@ export function App(): React.JSX.Element {
             rows={3}
             value={memorySummary}
             onChange={(event) => setMemorySummary(event.target.value)}
-            placeholder="Session summary"
+            placeholder="Session summary (read-only while dashboard is bound to VAULT_0 API)"
           />
           <button
             type="button"
-            disabled={!selectedProjectId || !memorySummary.trim()}
+            disabled
             onClick={() =>
               void runAction(async () => {
-                await vaultApi().memory.append(selectedProjectId, {
-                  agentId: chatAgentId || "user",
-                  task_summary: memorySummary.trim(),
-                });
                 setMemorySummary("");
-                const next = await vaultApi().memory.list(selectedProjectId, 20);
-                setMemoryEntries(next);
-              }, "Memory appended")
+              }, "Read-only")
             }
           >
-            Append memory
+            Memory is read-only from VAULT_0 API
           </button>
 
           <div className="memory-list">
@@ -844,7 +928,7 @@ export function App(): React.JSX.Element {
                 </button>
                 <button
                   type="button"
-                  disabled={!selectedProjectId || !ticketDraft.title.trim()}
+                  disabled={!vault0SourceProjectId || !ticketDraft.title.trim()}
                   onClick={() =>
                     void runAction(async () => {
                       await createTicketFromDraft();

@@ -36,7 +36,18 @@ const api: VaultApi = {
     generate: (ticketId) => ipcRenderer.invoke(IPC_CHANNELS.HANDOFF_GENERATE, ticketId),
   },
   vault0: {
+    listProjects: (baseUrl) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_LIST_PROJECTS, baseUrl),
+    listAgents: (baseUrl, projectId, includeInactive) =>
+      ipcRenderer.invoke(IPC_CHANNELS.VAULT0_LIST_AGENTS, { baseUrl, projectId, includeInactive }),
+    listTickets: (baseUrl, projectId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.VAULT0_LIST_TICKETS, { baseUrl, projectId }),
+    listMemory: (baseUrl, projectId, limit) =>
+      ipcRenderer.invoke(IPC_CHANNELS.VAULT0_LIST_MEMORY, { baseUrl, projectId, limit }),
     overview: (baseUrl) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_OVERVIEW, baseUrl),
+    createTicket: (input) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_CREATE_TICKET, input),
+    updateTicketStatus: (input) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_UPDATE_TICKET_STATUS, input),
+    exportTicketMarkdown: (input) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_EXPORT_TICKET_MARKDOWN, input),
+    generateHandoff: (input) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_GENERATE_HANDOFF, input),
     importAgent: (input) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_IMPORT_AGENT, input),
     importTicket: (input) => ipcRenderer.invoke(IPC_CHANNELS.VAULT0_IMPORT_TICKET, input),
   },

@@ -10,7 +10,7 @@ describe("renderer bridge and UX guards", () => {
 
     expect(app).toContain("function vaultApi()");
     expect(app).toContain("Desktop bridge unavailable (window.vault)");
-    expect(app).toContain("vaultApi().vault0.overview");
+    expect(app).toContain("vaultApi().vault0.listProjects");
 
     const rawWindowVaultMatches = app.match(/window\.vault/g) ?? [];
     expect(rawWindowVaultMatches.length).toBe(1);

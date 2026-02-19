@@ -104,6 +104,47 @@ const importVault0TicketSchema = z.object({
   targetProjectId: nonEmptyText,
 });
 
+const vault0ProjectScopeSchema = z.object({
+  baseUrl: nonEmptyText,
+  projectId: nonEmptyText,
+});
+
+const vault0CreateTicketSchema = z.object({
+  baseUrl: nonEmptyText,
+  projectId: nonEmptyText,
+  actor: z.string().optional(),
+  title: nonEmptyText,
+  type: z.enum(["story", "feature", "bug", "task", "chore"]),
+  priority: z.enum(["P0", "P1", "P2", "P3"]),
+  status: z.enum(["backlog", "to-qualify", "ready", "in-progress", "in-review", "blocked", "ask-boss", "done"]),
+  assignee: z.string().default(""),
+  estimate: z.number().int().min(0).optional(),
+  specMarkdown: z.string().optional(),
+  acceptanceCriteria: z.string().optional(),
+  testPlan: z.string().optional(),
+  dependencies: z.array(z.string()).optional(),
+  labels: z.array(z.string()).optional(),
+});
+
+const vault0UpdateStatusSchema = z.object({
+  baseUrl: nonEmptyText,
+  ticketId: nonEmptyText,
+  status: z.enum(["backlog", "to-qualify", "ready", "in-progress", "in-review", "blocked", "ask-boss", "done"]),
+  actor: z.string().optional(),
+});
+
+const vault0ExportTicketSchema = z.object({
+  baseUrl: nonEmptyText,
+  ticketId: nonEmptyText,
+});
+
+const vault0HandoffSchema = z.object({
+  baseUrl: nonEmptyText,
+  projectId: nonEmptyText,
+  ticketId: nonEmptyText,
+  memoryLimit: z.number().int().min(1).max(25).optional(),
+});
+
 export function registerVaultIpc(core: VaultCore): void {
   ipcMain.handle(IPC_CHANNELS.HEALTH, async () => ({ ok: true }));
 
@@ -183,8 +224,71 @@ export function registerVaultIpc(core: VaultCore): void {
     return { handoff };
   });
 
+  ipcMain.handle(IPC_CHANNELS.VAULT0_LIST_PROJECTS, async (_event, baseUrl: unknown) => {
+    return core.listVault0ProjectsApi(nonEmptyText.parse(baseUrl));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_LIST_AGENTS, async (_event, payload: unknown) => {
+    const input = vault0ProjectScopeSchema
+      .extend({ includeInactive: z.boolean().optional() })
+      .parse(payload);
+    return core.listVault0AgentsApi(input.baseUrl, input.projectId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_LIST_TICKETS, async (_event, payload: unknown) => {
+    const input = vault0ProjectScopeSchema.parse(payload);
+    return core.listVault0TicketsApi(input.baseUrl, input.projectId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_LIST_MEMORY, async (_event, payload: unknown) => {
+    const input = vault0ProjectScopeSchema.extend({ limit: z.number().int().min(1).max(200).optional() }).parse(payload);
+    return core.listVault0MemoryApi(input.baseUrl, input.projectId, input.limit ?? 20);
+  });
+
   ipcMain.handle(IPC_CHANNELS.VAULT0_OVERVIEW, async (_event, baseUrl: unknown) => {
     return core.getVault0Overview(nonEmptyText.parse(baseUrl));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_CREATE_TICKET, async (_event, payload: unknown) => {
+    const input = vault0CreateTicketSchema.parse(payload);
+    return core.createVault0Ticket(input.baseUrl, {
+      projectId: input.projectId,
+      actor: input.actor,
+      title: input.title,
+      type: input.type,
+      priority: input.priority,
+      status: input.status,
+      assignee: input.assignee,
+      estimate: input.estimate,
+      specMarkdown: input.specMarkdown,
+      acceptanceCriteria: input.acceptanceCriteria,
+      testPlan: input.testPlan,
+      dependencies: input.dependencies,
+      labels: input.labels,
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_UPDATE_TICKET_STATUS, async (_event, payload: unknown) => {
+    const input = vault0UpdateStatusSchema.parse(payload);
+    return core.updateVault0TicketStatus(input.baseUrl, {
+      ticketId: input.ticketId,
+      status: input.status,
+      actor: input.actor,
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_EXPORT_TICKET_MARKDOWN, async (_event, payload: unknown) => {
+    const input = vault0ExportTicketSchema.parse(payload);
+    return core.exportVault0TicketMarkdown(input.baseUrl, input.ticketId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.VAULT0_GENERATE_HANDOFF, async (_event, payload: unknown) => {
+    const input = vault0HandoffSchema.parse(payload);
+    return core.generateVault0Handoff(input.baseUrl, {
+      projectId: input.projectId,
+      ticketId: input.ticketId,
+      memoryLimit: input.memoryLimit,
+    });
   });
 
   ipcMain.handle(IPC_CHANNELS.VAULT0_IMPORT_AGENT, async (_event, payload: unknown) => {

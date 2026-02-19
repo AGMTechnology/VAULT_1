@@ -6,6 +6,7 @@ import os from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { VaultCore } from "../src/main/core/vault-core";
+import type { TicketRecord, TicketStatus } from "../src/shared/contracts";
 
 const tempRoots: string[] = [];
 const cores: VaultCore[] = [];
@@ -366,6 +367,142 @@ describe("VaultCore", () => {
     expect(importedTicket.projectId).toBe(targetProject.id);
     expect(importedTicket.labels).toContain("shared-from-vault0");
     expect(importedTicket.specMarkdown).toContain("VAULT_0 source ticket");
+
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  });
+
+  it("creates and updates VAULT_0 tickets through direct API client with docs-reviewed payload", async () => {
+    const root = await createTempRoot();
+    const core = new VaultCore({
+      dbPath: path.join(root, "vault1.db"),
+      dataRoot: path.join(root, "data"),
+    });
+    cores.push(core);
+    await core.init();
+
+    const currentTicket: TicketRecord = {
+      id: "VAULT-0-123",
+      projectId: "v0-project",
+      title: "Remote workflow ticket",
+      type: "feature",
+      priority: "P1",
+      status: "ready",
+      assignee: "vault1-desktop-architect",
+      estimate: 3,
+      specMarkdown: "spec",
+      acceptanceCriteria: "ac",
+      testPlan: "tp",
+      dependencies: [],
+      labels: [],
+      createdAt: "2026-02-19T00:00:00.000Z",
+      updatedAt: "2026-02-19T00:00:00.000Z",
+    };
+    let latestUpdateBody = "";
+
+    const server = http.createServer((req, res) => {
+      const url = req.url ?? "";
+      const method = req.method ?? "GET";
+
+      const json = (body: unknown, status = 200): void => {
+        res.setHeader("Content-Type", "application/json");
+        res.statusCode = status;
+        res.end(JSON.stringify(body));
+      };
+
+      if (url === "/api/tickets" && method === "POST") {
+        let raw = "";
+        req.on("data", (chunk) => {
+          raw += chunk.toString("utf8");
+        });
+        req.on("end", () => {
+          const parsed = JSON.parse(raw) as { title: string; projectId: string };
+          json({
+            ticket: {
+              ...currentTicket,
+              id: "VAULT-0-200",
+              title: parsed.title,
+              projectId: parsed.projectId,
+            },
+          });
+        });
+        return;
+      }
+
+      if (url === "/api/tickets/VAULT-0-123" && method === "GET") {
+        json({ ticket: currentTicket });
+        return;
+      }
+
+      if (url === "/api/projects/v0-project/docs" && method === "GET") {
+        json({ requiredDocs: ["README.md", "docs/ai/README.md"] });
+        return;
+      }
+
+      if (url === "/api/tickets/VAULT-0-123" && method === "PUT") {
+        let raw = "";
+        req.on("data", (chunk) => {
+          raw += chunk.toString("utf8");
+        });
+        req.on("end", () => {
+          latestUpdateBody = raw;
+          const parsed = JSON.parse(raw) as { status: TicketStatus };
+          json({
+            ticket: {
+              ...currentTicket,
+              status: parsed.status,
+            },
+          });
+        });
+        return;
+      }
+
+      res.statusCode = 404;
+      res.end();
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Unable to get test server address");
+    }
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const created = await core.createVault0Ticket(baseUrl, {
+      projectId: "v0-project",
+      title: "Created from VAULT_1",
+      type: "feature",
+      priority: "P1",
+      status: "ready",
+      assignee: "vault1-desktop-architect",
+    });
+    expect(created.id).toBe("VAULT-0-200");
+    expect(created.projectId).toBe("v0-project");
+
+    const updated = await core.updateVault0TicketStatus(baseUrl, {
+      ticketId: "VAULT-0-123",
+      status: "in-progress",
+    });
+    expect(updated.status).toBe("in-progress");
+
+    const sentBody = JSON.parse(latestUpdateBody) as {
+      status: TicketStatus;
+      docsReviewed?: boolean;
+      docsReviewedPaths?: string[];
+    };
+    expect(sentBody.status).toBe("in-progress");
+    expect(sentBody.docsReviewed).toBe(true);
+    expect(sentBody.docsReviewedPaths).toEqual(["README.md", "docs/ai/README.md"]);
 
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {

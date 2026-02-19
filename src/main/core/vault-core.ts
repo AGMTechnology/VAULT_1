@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 
 import Database from "better-sqlite3";
 
+import { Vault0ApiClient } from "./vault0-api-client";
 import type {
   AgentRecord,
   ChatMessage,
@@ -160,6 +161,8 @@ function createDefaultAgentPrompt(displayName: string): string {
 export class VaultCore {
   private readonly options: VaultCoreOptions;
 
+  private readonly vault0Api = new Vault0ApiClient();
+
   private db: Database.Database | null = null;
 
   constructor(options: VaultCoreOptions) {
@@ -249,23 +252,6 @@ export class VaultCore {
       throw new Error("VaultCore is not initialized");
     }
     return this.db;
-  }
-
-  private normalizeBaseUrl(baseUrl: string): string {
-    return baseUrl.trim().replace(/\/+$/, "");
-  }
-
-  private async fetchVault0Json<T>(baseUrl: string, route: string): Promise<T> {
-    const normalized = this.normalizeBaseUrl(baseUrl);
-    const response = await fetch(`${normalized}${route}`, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-    });
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`VAULT_0 API error ${response.status} on ${route}: ${body || response.statusText}`);
-    }
-    return (await response.json()) as T;
   }
 
   private projectMemoryFile(projectId: string): string {
@@ -621,12 +607,15 @@ export class VaultCore {
   }
 
   private async listVault0Projects(baseUrl: string): Promise<ProjectRecord[]> {
-    const payload = await this.fetchVault0Json<{ projects: ProjectRecord[] }>(baseUrl, "/api/projects");
+    const payload = await this.vault0Api.requestJson<{ projects: ProjectRecord[] }>(
+      baseUrl,
+      "/api/projects",
+    );
     return payload.projects ?? [];
   }
 
   private async listVault0Agents(baseUrl: string, projectId: string): Promise<AgentRecord[]> {
-    const payload = await this.fetchVault0Json<{ agents: AgentRecord[] }>(
+    const payload = await this.vault0Api.requestJson<{ agents: AgentRecord[] }>(
       baseUrl,
       `/api/agents?projectId=${encodeURIComponent(projectId)}&includeInactive=true`,
     );
@@ -634,7 +623,7 @@ export class VaultCore {
   }
 
   private async listVault0Tickets(baseUrl: string, projectId: string): Promise<TicketRecord[]> {
-    const payload = await this.fetchVault0Json<{ tickets: TicketRecord[] }>(
+    const payload = await this.vault0Api.requestJson<{ tickets: TicketRecord[] }>(
       baseUrl,
       `/api/tickets?projectId=${encodeURIComponent(projectId)}`,
     );
@@ -642,11 +631,137 @@ export class VaultCore {
   }
 
   private async listVault0Memory(baseUrl: string, projectId: string, limit = 20): Promise<MemoryEntry[]> {
-    const payload = await this.fetchVault0Json<{ entries: MemoryEntry[] }>(
+    const payload = await this.vault0Api.requestJson<{ entries: MemoryEntry[] }>(
       baseUrl,
       `/api/memory?projectId=${encodeURIComponent(projectId)}&limit=${limit}`,
     );
     return payload.entries ?? [];
+  }
+
+  private async getVault0Ticket(baseUrl: string, ticketId: string): Promise<TicketRecord> {
+    const payload = await this.vault0Api.requestJson<{ ticket: TicketRecord }>(
+      baseUrl,
+      `/api/tickets/${encodeURIComponent(ticketId)}`,
+    );
+    return payload.ticket;
+  }
+
+  private async listVault0RequiredDocs(baseUrl: string, projectId: string): Promise<string[]> {
+    try {
+      const payload = await this.vault0Api.requestJson<{ requiredDocs?: string[] }>(
+        baseUrl,
+        `/api/projects/${encodeURIComponent(projectId)}/docs`,
+      );
+      if (!Array.isArray(payload.requiredDocs) || payload.requiredDocs.length === 0) {
+        return ["README.md"];
+      }
+      return payload.requiredDocs;
+    } catch {
+      return ["README.md"];
+    }
+  }
+
+  async listVault0ProjectsApi(baseUrl: string): Promise<ProjectRecord[]> {
+    return this.listVault0Projects(baseUrl);
+  }
+
+  async listVault0AgentsApi(baseUrl: string, projectId: string): Promise<AgentRecord[]> {
+    return this.listVault0Agents(baseUrl, projectId);
+  }
+
+  async listVault0TicketsApi(baseUrl: string, projectId: string): Promise<TicketRecord[]> {
+    return this.listVault0Tickets(baseUrl, projectId);
+  }
+
+  async listVault0MemoryApi(baseUrl: string, projectId: string, limit = 20): Promise<MemoryEntry[]> {
+    return this.listVault0Memory(baseUrl, projectId, limit);
+  }
+
+  async createVault0Ticket(
+    baseUrl: string,
+    input: CreateTicketInput & {
+      actor?: string;
+    },
+  ): Promise<TicketRecord> {
+    const payload = await this.vault0Api.requestJson<{ ticket: TicketRecord }>(
+      baseUrl,
+      "/api/tickets",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: input.projectId,
+          actor: input.actor?.trim() || input.assignee?.trim() || "vault1-desktop-architect",
+          title: input.title,
+          type: input.type,
+          priority: input.priority,
+          status: input.status,
+          assignee: input.assignee,
+          estimate: input.estimate ?? 0,
+          specMarkdown: input.specMarkdown ?? "",
+          acceptanceCriteria: input.acceptanceCriteria ?? "",
+          testPlan: input.testPlan ?? "",
+          dependencies: input.dependencies ?? [],
+          labels: input.labels ?? [],
+        }),
+      },
+    );
+    return payload.ticket;
+  }
+
+  async updateVault0TicketStatus(
+    baseUrl: string,
+    input: {
+      ticketId: string;
+      status: TicketStatus;
+      actor?: string;
+    },
+  ): Promise<TicketRecord> {
+    const before = await this.getVault0Ticket(baseUrl, input.ticketId);
+    const actor = input.actor?.trim() || before.assignee.trim() || "vault1-desktop-architect";
+    const updatePayload: Record<string, unknown> = {
+      status: input.status,
+      actor,
+    };
+
+    if (input.status === "in-progress") {
+      updatePayload.docsReviewed = true;
+      updatePayload.docsReviewedPaths = await this.listVault0RequiredDocs(baseUrl, before.projectId);
+    }
+
+    const payload = await this.vault0Api.requestJson<{ ticket: TicketRecord }>(
+      baseUrl,
+      `/api/tickets/${encodeURIComponent(input.ticketId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(updatePayload),
+      },
+    );
+    return payload.ticket;
+  }
+
+  async exportVault0TicketMarkdown(baseUrl: string, ticketId: string): Promise<{ filePath: string }> {
+    return this.vault0Api.requestJson<{ filePath: string }>(
+      baseUrl,
+      `/api/tickets/${encodeURIComponent(ticketId)}/export`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    );
+  }
+
+  async generateVault0Handoff(
+    baseUrl: string,
+    input: { projectId: string; ticketId: string; memoryLimit?: number },
+  ): Promise<{ handoff: string }> {
+    return this.vault0Api.requestJson<{ handoff: string }>(baseUrl, "/api/handoff", {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: input.projectId,
+        ticketId: input.ticketId,
+        memoryLimit: input.memoryLimit ?? 5,
+      }),
+    });
   }
 
   async getVault0Overview(baseUrl: string): Promise<Vault0ProjectSnapshot[]> {

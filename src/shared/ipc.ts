@@ -89,7 +89,40 @@ export type VaultApi = {
     generate: (ticketId: string) => Promise<{ handoff: string }>;
   };
   vault0: {
+    listProjects: (baseUrl: string) => Promise<ProjectRecord[]>;
+    listAgents: (baseUrl: string, projectId: string, includeInactive?: boolean) => Promise<AgentRecord[]>;
+    listTickets: (baseUrl: string, projectId: string) => Promise<TicketRecord[]>;
+    listMemory: (baseUrl: string, projectId: string, limit?: number) => Promise<MemoryEntry[]>;
     overview: (baseUrl: string) => Promise<Vault0ProjectSnapshot[]>;
+    createTicket: (input: {
+      baseUrl: string;
+      projectId: string;
+      actor?: string;
+      title: string;
+      type: TicketType;
+      priority: TicketPriority;
+      status: TicketStatus;
+      assignee: string;
+      estimate?: number;
+      specMarkdown?: string;
+      acceptanceCriteria?: string;
+      testPlan?: string;
+      dependencies?: string[];
+      labels?: string[];
+    }) => Promise<TicketRecord>;
+    updateTicketStatus: (input: {
+      baseUrl: string;
+      ticketId: string;
+      status: TicketStatus;
+      actor?: string;
+    }) => Promise<TicketRecord>;
+    exportTicketMarkdown: (input: { baseUrl: string; ticketId: string }) => Promise<{ filePath: string }>;
+    generateHandoff: (input: {
+      baseUrl: string;
+      projectId: string;
+      ticketId: string;
+      memoryLimit?: number;
+    }) => Promise<{ handoff: string }>;
     importAgent: (input: {
       baseUrl: string;
       sourceProjectId: string;
@@ -123,7 +156,15 @@ export const IPC_CHANNELS = {
   MEMORY_LIST: "vault:memory:list",
   MEMORY_APPEND: "vault:memory:append",
   HANDOFF_GENERATE: "vault:handoff:generate",
+  VAULT0_LIST_PROJECTS: "vault:vault0:list-projects",
+  VAULT0_LIST_AGENTS: "vault:vault0:list-agents",
+  VAULT0_LIST_TICKETS: "vault:vault0:list-tickets",
+  VAULT0_LIST_MEMORY: "vault:vault0:list-memory",
   VAULT0_OVERVIEW: "vault:vault0:overview",
+  VAULT0_CREATE_TICKET: "vault:vault0:create-ticket",
+  VAULT0_UPDATE_TICKET_STATUS: "vault:vault0:update-ticket-status",
+  VAULT0_EXPORT_TICKET_MARKDOWN: "vault:vault0:export-ticket-markdown",
+  VAULT0_GENERATE_HANDOFF: "vault:vault0:generate-handoff",
   VAULT0_IMPORT_AGENT: "vault:vault0:import-agent",
   VAULT0_IMPORT_TICKET: "vault:vault0:import-ticket",
 } as const;
