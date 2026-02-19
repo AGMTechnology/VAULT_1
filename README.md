@@ -43,6 +43,9 @@ npm install
 npm run dev
 ```
 
+`npm run dev` runs the desktop app with hot reload (Electron + Vite), not a browser-only app.
+The script automatically rebuilds `better-sqlite3` for Electron ABI before launch.
+
 ## Build and start
 
 ```bash
@@ -51,12 +54,23 @@ npm run build
 npm run start
 ```
 
+`npm run start` is the desktop launcher flow used by the Windows shortcut.
+It rebuilds `better-sqlite3` for Electron ABI and then opens the Electron client.
+
+If you need to recreate the desktop shortcut:
+
+```bash
+npm run shortcut:create
+```
+
 ## Tests (TDD core)
 
 ```bash
 cd VAULT_1
 npm test
 ```
+
+`npm test` rebuilds `better-sqlite3` for Node ABI before running Vitest.
 
 Current tests cover:
 

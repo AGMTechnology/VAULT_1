@@ -5,6 +5,7 @@ import path from "node:path";
 export default defineConfig({
   plugins: [react()],
   root: ".",
+  base: "./",
   resolve: {
     alias: {
       "@shared": path.resolve(__dirname, "src/shared"),

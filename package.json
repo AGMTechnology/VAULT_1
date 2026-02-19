@@ -7,13 +7,16 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:main\" \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
-    "dev:renderer": "vite --config vite.renderer.config.ts --port 5174",
-    "dev:electron": "wait-on dist/main/electron/main.js tcp:5174 && cross-env VITE_DEV_SERVER_URL=http://localhost:5174 electron .",
+    "dev:renderer": "vite --config vite.renderer.config.ts --port 5373 --strictPort",
+    "dev:electron": "wait-on dist/main/electron/main.js tcp:5373 && npm run rebuild:native:electron && node ./scripts/run-electron-dev.mjs",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "vite build --config vite.renderer.config.ts",
     "build:main": "tsc -p tsconfig.main.json",
-    "start": "npm run build && electron .",
-    "test": "vitest run",
+    "start": "npm run build && npm run rebuild:native:electron && node ./scripts/run-electron-start.mjs",
+    "test": "npm run build:renderer && npm run rebuild:native:node && vitest run",
+    "stop:desktop": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-vault1-electron.ps1",
+    "rebuild:native:node": "npm run stop:desktop && npm rebuild better-sqlite3",
+    "rebuild:native:electron": "npm run stop:desktop && npm rebuild better-sqlite3 --runtime=electron --target=35.0.1 --dist-url=https://electronjs.org/headers",
     "shortcut:create": "powershell -ExecutionPolicy Bypass -File ./scripts/create-desktop-shortcut.ps1"
   },
   "dependencies": {

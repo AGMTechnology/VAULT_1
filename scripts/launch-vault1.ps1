@@ -4,7 +4,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot
 
 if (-not (Test-Path (Join-Path $repoRoot "node_modules"))) {
-  npm install
+  & npm.cmd install
 }
 
-npm run dev
+& npm.cmd run start
